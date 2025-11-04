@@ -1,3 +1,6 @@
 [submodule "ref/Adafisher"]
 	path = ref/Adafisher
 	url = https://github.com/AtlasAnalyticsLab/AdaFisher.git
+[submodule "ref/continual-learning"]
+	path = ref/continual-learning
+	url = https://github.com/GMvandeVen/continual-learning.git
