@@ -1,6 +1,7 @@
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
+
 
 class GPT1Embedding(nn.Module):
     def __init__(
@@ -53,12 +54,12 @@ class GPT1Embedding(nn.Module):
         """
         if torch.any(positions >= self.sequence_length):
             raise RuntimeError(
-                "Some position indices are larger than the " "maximum sequence length."
+                "Some position indices are larger than the maximum sequence length."
             )
 
         if torch.any(tokens >= self.vocabulary_size):
             raise RuntimeError(
-                "Some tokens are larger than the size of " "the vocabulary."
+                "Some tokens are larger than the size of the vocabulary."
             )
 
         token_embeddings = self.tokens(tokens)

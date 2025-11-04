@@ -11,6 +11,11 @@ dependencies = [
     "rich>=14.0.0",
     "tqdm",
     "toml>=0.10.2",
+    "psutil>=7.1.3",
+    "pyyaml>=6.0.3",
+    "einops>=0.8.1",
+    "asdl",
+    "timm>=1.0.21",
 ]
 
 [tool.pytest.ini_options]
@@ -45,6 +50,7 @@ exclude = ["ref"]
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cu128" }]
+asdl = { git = "https://github.com/kazukiosawa/asdl", rev = "011a942b2698b9ec33b0c8c47c96bd49335e5d80" }
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
