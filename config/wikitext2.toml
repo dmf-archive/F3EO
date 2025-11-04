@@ -5,7 +5,7 @@ device = "cuda"
 
 [model]
 arch = "nano_gpt"
-vocabulary_size = 50257
+vocabulary_size = 40479  # 对齐AdaFisher的词汇表大小
 embedding_size = 768
 sequence_length = 256
 num_heads = 12
@@ -13,12 +13,12 @@ num_layers = 4
 
 [data]
 batch_size = 16
-num_workers = 4
+num_workers = 2  # 对齐AdaFisher
 
 [optimizer]
 name = "F3EO"
-lr = 0.0001
-weight_decay = 0.1
+lr = 0.001       # 对齐AdaFisher的学习率
+weight_decay = 5e-4  # 对齐AdaFisher
 
 [scheduler]
 name = "cosine"

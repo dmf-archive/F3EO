@@ -16,12 +16,25 @@ class Cifar10Task:
         self.device = config["experiment"]["device"]
         
     def get_dataloaders(self) -> Tuple[DataLoader, DataLoader]:
-        transform_train = transforms.Compose([
+        # 基础变换
+        transform_train = [
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
+        ]
+        
+        # 根据配置添加cutout增强
+        if self.config.get("data", {}).get("cutout", False):
+            n_holes = self.config.get("data", {}).get("n_holes", 1)
+            cutout_length = self.config.get("data", {}).get("cutout_length", 16)
+            transform_train.append(Cutout(n_holes=n_holes, length=cutout_length))
+        
+        # 添加ToTensor和Normalize
+        transform_train.extend([
             transforms.ToTensor(),
             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
         ])
+        
+        transform_train = transforms.Compose(transform_train)
         
         transform_test = transforms.Compose([
             transforms.ToTensor(),

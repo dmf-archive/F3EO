@@ -96,13 +96,17 @@ class Wikitext2Task:
     def get_criterion(self) -> nn.Module:
         return nn.NLLLoss()
     
-    def train_epoch(self, model: nn.Module, train_loader: DataLoader, 
-                   optimizer: torch.optim.Optimizer, criterion: nn.Module) -> Dict[str, float]:
+    def train_epoch(self, model: nn.Module, train_loader: DataLoader,
+                   optimizer: torch.optim.Optimizer, criterion: nn.Module,
+                   progress_callback=None) -> Dict[str, float]:
         model.train()
         total_loss = 0.0
         total_tokens = 0
         
-        for batch in train_loader:
+        # 检测是否使用需要二阶梯度的优化器
+        needs_second_order = hasattr(optimizer, '__class__') and optimizer.__class__.__name__ in ['F3EO', 'AdaHessian']
+        
+        for batch_idx, batch in enumerate(train_loader):
             batch = {k: v.to(self.device) for k, v in batch.items()}
             
             optimizer.zero_grad()
@@ -111,11 +115,21 @@ class Wikitext2Task:
             loss = loss * batch["mask"].view(-1)
             loss = loss.sum() / batch["mask"].sum()
             
-            loss.backward()
+            # 根据优化器类型决定是否创建计算图
+            if needs_second_order:
+                loss.backward(create_graph=True)
+            else:
+                loss.backward()
+            
             optimizer.step()
             
             total_loss += loss.item() * batch["mask"].sum().item()
             total_tokens += batch["mask"].sum().item()
+            
+            # 每10个batch更新一次进度
+            if progress_callback and (batch_idx + 1) % 10 == 0:
+                current_ppl = math.exp(loss.item())
+                progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_ppl)
         
         avg_loss = total_loss / total_tokens
         perplexity = math.exp(avg_loss)

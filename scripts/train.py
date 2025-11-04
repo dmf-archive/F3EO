@@ -12,6 +12,7 @@ from rich.table import Table
 from rich.panel import Panel
 from utils.early_stop import EarlyStop
 from utils.report_generator import ReportGenerator
+from utils.training_monitor import TrainingMonitor
 
 
 console = Console()
@@ -88,11 +89,32 @@ def train(config: Dict[str, Any], task_class) -> None:
     output_dir = Path("outputs") / config["experiment"]["task"] / config["optimizer"]["name"]
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    # 初始化训练监控器（支持断点续训）
+    monitor = TrainingMonitor(config, output_dir)
+    
+    # 检查是否存在检查点文件
+    checkpoint_path = output_dir / "latest_checkpoint.pt"
+    start_epoch = 0
+    
+    if checkpoint_path.exists():
+        console.print(f"[yellow]Found checkpoint, resuming training...[/yellow]")
+        checkpoint = monitor.load_checkpoint(checkpoint_path)
+        
+        # 恢复模型状态
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if scheduler and checkpoint["scheduler_state_dict"]:
+            scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        
+        start_epoch = checkpoint["epoch"] + 1
+        console.print(f"[green]Resumed from epoch {start_epoch}[/green]")
+    
     # 初始化早停机制
     early_stop_patience = config.get("early_stop", {}).get("patience", 10)
     early_stop_threshold = config.get("early_stop", {}).get("threshold", -1.0)
     early_stop_mode = "min" if config['experiment']['task'] == 'wikitext2' else "max"
     early_stop = EarlyStop(patience=early_stop_patience, threshold=early_stop_threshold, mode=early_stop_mode)
+    early_stop.best_metric = monitor.best_metric  # 恢复早停状态
     
     # 初始化报告生成器
     report_gen = ReportGenerator(config, output_dir)
@@ -148,6 +170,14 @@ def train(config: Dict[str, Any], task_class) -> None:
             def step_progress_callback(step, total_steps, loss, acc):
                 if step % 10 == 0:  # 每10步更新一次
                     console.print(f"[dim]Step {step}/{total_steps} | Loss: {loss:.4f} | Acc: {acc:.2f}%[/dim]")
+            
+            # Step 级进度条和实时监控
+            def step_progress_callback(step, total_steps, loss, metric):
+                if step % 10 == 0:  # 每10步更新一次
+                    if config['experiment']['task'] == 'wikitext2':
+                        console.print(f"[dim]Step {step}/{total_steps} | Loss: {loss:.4f} | PPL: {metric:.2f}[/dim]")
+                    else:
+                        console.print(f"[dim]Step {step}/{total_steps} | Loss: {loss:.4f} | Acc: {metric:.2f}%[/dim]")
             
             train_results = task.train_epoch(model, train_loader, optimizer, criterion, step_progress_callback)
             valid_results = task.validate_epoch(model, valid_loader, criterion)
