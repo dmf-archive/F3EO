@@ -27,15 +27,15 @@ f3eo-bench/
 │   └── adahessian.py  # 二阶对照，直接抄官方
 ├── model/
 │   ├── __init__.py
-│   ├── resnet.py # ResNet-20 定义
-│   ├── vit.py   # 2-layer Transformer
+│   ├── resnet.py # ResNet-18
+│   ├── vit.py   # Transformer
 │   └── nano-gpt.py   # MNIST/Fashion 头
 ├── data/ # 自动创建的数据集缓存
 ├── config/
 │   ├── cifar10.toml
 │   ├── wikitext2.toml
 │   └── cl_stream.toml
-├── task/
+├── task/ # 不同任务具体的训练调度器
 │   ├── cifar10.py
 │   ├── wikitext2.py
 │   └── cl_stream.py   # 持续学习 MNIST→Fashion
@@ -43,7 +43,7 @@ f3eo-bench/
 │   ├── report/      # markdown report
 │   └── checkpoints/   # 只存 best.pt
 └──  scripts/
-   ├── train.py   # 统一入口
+   ├── train.py   # 统一入口、rich log print
    └── notebook/
       └── loss_landscape.ipynb  # 损失地形可视化（参考 adafisher）
 ```

@@ -1,0 +1,26 @@
+[experiment]
+task = "cifar10"
+seed = 42
+device = "cuda"
+
+[model]
+arch = "resnet18_cifar"
+num_classes = 10
+
+[data]
+batch_size = 128
+num_workers = 4
+
+[optimizer]
+name = "F3EO"
+lr = 0.1
+weight_decay = 5e-4
+
+[scheduler]
+milestones = [60, 120, 160]
+gamma = 0.2
+
+[train]
+epochs = 200
+log_every = 10
+ckpt_every = 50
