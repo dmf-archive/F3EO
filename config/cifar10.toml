@@ -24,3 +24,7 @@ gamma = 0.2
 epochs = 200
 log_every = 10
 ckpt_every = 50
+
+[early_stop]
+patience = 10
+threshold = 0.3  # 0.3% accuracy improvement required

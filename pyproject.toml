@@ -10,6 +10,7 @@ dependencies = [
     "torch>=2.7.1",
     "rich>=14.0.0",
     "tqdm",
+    "toml>=0.10.2",
 ]
 
 [tool.pytest.ini_options]
