@@ -5,10 +5,10 @@
 |-|-------|
 | Task | cifar10 |
 | Model | resnet18_cifar |
-| Optimizer | F3EO |
+| Optimizer | AdamW |
 | Learning Rate | 0.001 |
 | Weight Decay | 0.0005 |
-| Epochs | 11 |
+| Epochs | 1 |
 | Batch Size | 256 |
 | Device | cuda |
 | Seed | 42 |
@@ -16,23 +16,13 @@
 ## Training Results
 | Epoch | Train Loss | Valid Loss | Train Accuracy (%) | Valid Accuracy (%) | Learning Rate | Time |
 |-----|--|-----|-----|-----|-----|------|
-| 1 | 1.7275 | 1.7575 | 35.47 | 40.65 | 0.001000 | 248.51s |
-| 2 | 1.3614 | 1.1632 | 50.14 | 57.91 | 0.001000 | 248.32s |
-| 3 | 1.1519 | 1.1283 | 58.55 | 60.41 | 0.001000 | 247.23s |
-| 4 | 1.0255 | 0.9342 | 63.53 | 66.83 | 0.000999 | 247.28s |
-| 5 | 0.9499 | 0.9589 | 66.55 | 67.77 | 0.000999 | 246.96s |
-| 6 | 0.8718 | 0.8472 | 69.65 | 70.59 | 0.000998 | 247.01s |
-| 7 | 0.8021 | 0.9820 | 72.32 | 66.95 | 0.000998 | 247.90s |
-| 8 | 0.7535 | 0.7810 | 74.26 | 72.69 | 0.000997 | 248.62s |
-| 9 | 0.7136 | 0.7916 | 75.95 | 74.41 | 0.000996 | 253.85s |
-| 10 | 0.6881 | 0.8390 | 76.85 | 71.74 | 0.000995 | 247.92s |
-| 11 | 0.6629 | 0.6282 | 77.83 | 79.36 | 0.000994 | 250.93s |
+| 1 | 1.1979 | 1.0592 | 56.46 | 63.61 | 0.001000 | 147.17s |
 
 ## Performance Summary
-- **Best Validation Accuracy (%)**: 79.36
-- **Final Validation Accuracy (%)**: 79.36
-- **Total Training Time**: 2734.55s
-- **Average Epoch Time**: 248.59s
+- **Best Validation Accuracy (%)**: 63.61
+- **Final Validation Accuracy (%)**: 63.61
+- **Total Training Time**: 147.18s
+- **Average Epoch Time**: 147.17s
 
 ## Configuration Details
 ```toml
@@ -55,7 +45,7 @@
     "cutout_length": 16
   },
   "optimizer": {
-    "name": "F3EO",
+    "name": "AdamW",
     "lr": 0.001,
     "weight_decay": 0.0005
   },

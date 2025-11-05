@@ -39,8 +39,10 @@ class TrainingMonitor:
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 指标历史记录
+        # 指标历史记录 (step-level)
         self.metrics_history: list[TrainingMetrics] = []
+        # epoch 级别的指标历史记录
+        self.epoch_metrics_history: list[dict[str, Any]] = []
         self.epoch_times: list[float] = []
         self.start_time = time.time()
 
@@ -131,10 +133,12 @@ class TrainingMonitor:
         self.epoch_start_time = time.time()
         self.console.print(f"\n[bold cyan]Starting Epoch {epoch + 1}[/bold cyan]")
 
-    def end_epoch(self, valid_metric: float) -> dict[str, Any]:
-        """记录epoch结束"""
+    def end_epoch(self, train_results: dict[str, float], valid_results: dict[str, float], lr: float) -> dict[str, Any]:
+        """记录epoch结束并保存epoch级别指标"""
         epoch_time = time.time() - self.epoch_start_time
         self.epoch_times.append(epoch_time)
+
+        valid_metric = valid_results.get("perplexity", valid_results.get("accuracy"))
 
         # 更新最佳指标
         if self.config['experiment']['task'] == 'wikitext2':
@@ -145,6 +149,18 @@ class TrainingMonitor:
             if valid_metric > self.best_metric:
                 self.best_metric = valid_metric
                 self.best_epoch = self.current_epoch
+
+        # Store epoch-level metrics
+        epoch_summary = {
+            "epoch": self.current_epoch,
+            "train_loss": train_results["loss"],
+            "valid_loss": valid_results["loss"],
+            "learning_rate": lr,
+            "epoch_time": epoch_time,
+            "train_metric": train_results.get("accuracy", train_results.get("perplexity")),
+            "valid_metric": valid_results.get("accuracy", valid_results.get("perplexity")),
+        }
+        self.epoch_metrics_history.append(epoch_summary)
 
         return {
             "epoch_time": epoch_time,
@@ -218,6 +234,7 @@ class TrainingMonitor:
             "config": self.config,
             "metrics_history": [m.to_dict() for m in self.metrics_history[-1000:]],  # 保存最近1000步
             "epoch_times": self.epoch_times[-50:],  # 保存最近50个epoch
+            "epoch_metrics_history": self.epoch_metrics_history,
             "timestamp": time.time()
         }
 
@@ -263,6 +280,8 @@ class TrainingMonitor:
             self.metrics_history = [TrainingMetrics(**m) for m in checkpoint["metrics_history"]]
         if "epoch_times" in checkpoint:
             self.epoch_times = checkpoint["epoch_times"]
+        if "epoch_metrics_history" in checkpoint:
+            self.epoch_metrics_history = checkpoint["epoch_metrics_history"]
 
         return checkpoint
 

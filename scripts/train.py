@@ -57,7 +57,7 @@ def create_optimizer_scheduler(model, config, train_loader):
         optimizer = Adahessian(model.parameters(), lr=lr, weight_decay=weight_decay)
     elif optimizer_name == "AdaFisher":
         from optimizer.ada_fisher import AdaFisher
-        optimizer = AdaFisher(model, lr=lr, weight_decay=weight_decay)
+        optimizer = AdaFisher(model.parameters(), lr=lr, weight_decay=weight_decay)
     elif optimizer_name == "F3EO":
         from optimizer.F3EO import F3EO
         optimizer = F3EO(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -127,8 +127,18 @@ def train(config: dict[str, Any], task_class) -> None:
     early_stop = EarlyStop(patience=early_stop_patience, threshold=early_stop_threshold, mode=early_stop_mode)
     early_stop.best_metric = monitor.best_metric  # 恢复早停状态
 
-    # 初始化报告生成器
-    report_gen = ReportGenerator(config, output_dir)
+    preload_history = None
+    if start_epoch > 0 and monitor.epoch_metrics_history:
+        preload_history = {
+            "epoch": [m["epoch"] for m in monitor.epoch_metrics_history],
+            "train_loss": [m["train_loss"] for m in monitor.epoch_metrics_history],
+            "valid_loss": [m["valid_loss"] for m in monitor.epoch_metrics_history],
+            "train_metric": [m["train_metric"] for m in monitor.epoch_metrics_history],
+            "valid_metric": [m["valid_metric"] for m in monitor.epoch_metrics_history],
+            "learning_rate": [m["learning_rate"] for m in monitor.epoch_metrics_history],
+            "epoch_time": [m["epoch_time"] for m in monitor.epoch_metrics_history],
+        }
+    report_gen = ReportGenerator(config, output_dir, preload_history=preload_history)
 
     console.print(Panel.fit(
         f"[bold cyan]Task:[/bold cyan] {config['experiment']['task']}\n"
@@ -191,7 +201,7 @@ def train(config: dict[str, Any], task_class) -> None:
 
                     console.print(base_msg + "[/dim]")
 
-            train_results = task.train_epoch(model, train_loader, optimizer, criterion, step_progress_callback)
+            train_results = task.train_epoch(model, train_loader, optimizer, criterion, monitor, step_progress_callback)
             valid_results = task.validate_epoch(model, valid_loader, criterion)
 
             epoch_time = time.time() - start_time
@@ -200,8 +210,11 @@ def train(config: dict[str, Any], task_class) -> None:
             current_lr = optimizer.param_groups[0]['lr']
 
             # 记录指标到报告生成器
-            report_gen.log_epoch(epoch, train_results, valid_results, current_lr, epoch_time)
+            report_gen.log_epoch(epoch + 1, train_results, valid_results, current_lr, epoch_time)
 
+            # 更新 TrainingMonitor 中的 epoch 级别指标
+            monitor_output = monitor.end_epoch(train_results, valid_results, current_lr)
+            
             if scheduler:
                 scheduler.step()
 
@@ -209,15 +222,14 @@ def train(config: dict[str, Any], task_class) -> None:
             monitor_metric = valid_results.get("perplexity", valid_results.get("accuracy"))
             is_best = False
             if config['experiment']['task'] == 'wikitext2':
-                if monitor_metric < best_metric:
-                    best_metric = monitor_metric
-                    best_epoch = epoch + 1
+                if monitor_metric < monitor.best_metric: # 使用 monitor.best_metric
                     is_best = True
             else:
-                if monitor_metric > best_metric:
-                    best_metric = monitor_metric
-                    best_epoch = epoch + 1
+                if monitor_metric > monitor.best_metric: # 使用 monitor.best_metric
                     is_best = True
+            
+            best_metric = monitor.best_metric # 从 monitor 获取
+            best_epoch = monitor.best_epoch # 从 monitor 获取
 
             table = Table(title=f"Epoch {epoch+1} Results")
             table.add_column("Split", style="cyan")

@@ -5,7 +5,7 @@ from typing import Any
 
 
 class ReportGenerator:
-    def __init__(self, config: dict[str, Any], output_dir: Path):
+    def __init__(self, config: dict[str, Any], output_dir: Path, preload_history: dict[str, list[Any]] | None = None):
         self.config = config
         self.output_dir = output_dir
         self.metrics_history = {
@@ -17,12 +17,14 @@ class ReportGenerator:
             "learning_rate": [],
             "epoch_time": []
         }
+        if preload_history is not None:
+            self.metrics_history.update(preload_history)
         self.start_time = time.time()
         self.task_type = config["experiment"]["task"]
 
-    def log_epoch(self, epoch: int, train_results: dict[str, float],
+    def log_epoch(self, epoch_num: int, train_results: dict[str, float],
                   valid_results: dict[str, float], lr: float, epoch_time: float):
-        self.metrics_history["epoch"].append(epoch)
+        self.metrics_history["epoch"].append(epoch_num) # Change to epoch_num
         self.metrics_history["train_loss"].append(train_results["loss"])
         self.metrics_history["valid_loss"].append(valid_results["loss"])
         self.metrics_history["learning_rate"].append(lr)
@@ -66,7 +68,7 @@ class ReportGenerator:
 
 ## Configuration Summary
 | Parameter | Value |
-|-----------|-------|
+|-|-------|
 | Task | {self.config['experiment']['task']} |
 | Model | {self.config['model']['arch']} |
 | Optimizer | {self.config['optimizer']['name']} |
@@ -79,7 +81,7 @@ class ReportGenerator:
 
 ## Training Results
 | Epoch | Train Loss | Valid Loss | Train {metric_name} | Valid {metric_name} | Learning Rate | Time |
-|-------|------------|------------|-------------------|-------------------|---------------|------|
+|-----|--|-----|-----|-----|-----|------|
 {table_content}
 
 ## Performance Summary

@@ -112,7 +112,7 @@ class Cifar10Task:
 
     def train_epoch(self, model: nn.Module, train_loader: DataLoader,
                    optimizer: torch.optim.Optimizer, criterion: nn.Module,
-                   progress_callback=None) -> dict[str, float]:
+                   monitor: Any, progress_callback=None) -> dict[str, float]: # 添加 monitor 参数
         model.train()
         total_loss = 0.0
         correct = 0
@@ -121,7 +121,9 @@ class Cifar10Task:
         epoch_start_time = time.time()
         last_callback_time = epoch_start_time
 
-        # 检测是否使用需要二阶梯度的优化器
+        # 根据优化器类型决定是否创建计算图
+        # 所有优化器都需要计算梯度范数，因此所有 loss.backward 都需要 create_graph=True
+        # 但为了避免不必要的开销，只在需要二阶梯度的优化器中保留 create_graph=True
         needs_second_order = hasattr(optimizer, '__class__') and optimizer.__class__.__name__ in ['F3EO', 'AdaHessian']
 
         for batch_idx, (inputs, targets) in enumerate(train_loader):
@@ -131,11 +133,10 @@ class Cifar10Task:
             outputs = model(inputs)
             loss = criterion(outputs, targets)
 
-            # 根据优化器类型决定是否创建计算图
             if needs_second_order:
                 loss.backward(create_graph=True)
             else:
-                loss.backward()
+                loss.backward() # 对于一阶优化器，不需要 create_graph=True
 
             optimizer.step()
 
@@ -155,10 +156,8 @@ class Cifar10Task:
                 steps_processed = 10  # 每10个batch调用一次回调
                 steps_per_sec = steps_processed / time_elapsed if time_elapsed > 0 else 0.0
 
-                # 获取grad norm
-                grad_norm = None
-                if hasattr(optimizer, 'grad_norm'):
-                    grad_norm = optimizer.grad_norm
+                # 获取grad norm (统一从 monitor 获取)
+                grad_norm = monitor.compute_grad_norm(model)
 
                 progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_acc, grad_norm, steps_per_sec)
                 last_callback_time = current_time
