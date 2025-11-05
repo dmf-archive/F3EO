@@ -15,4 +15,4 @@ data/
 .vscode/
 
 # Outputs
-outputs/
+*.pt

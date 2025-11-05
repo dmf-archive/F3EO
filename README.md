@@ -195,5 +195,9 @@ If you use F3EO in your research, please cite:
 ## References
 
 [1] Rui, L. (2025). _Integrated Predictive Workspace Theory: Towards a Unified Framework for the Science of Consciousness (Version 2.0)_. Zenodo. <https://doi.org/10.5281/zenodo.15676304>
+
 [2] Friston, K. (2010). The free-energy principle: a unified brain theory?. _Nature Reviews Neuroscience, 11_(2), 127-138.
+
 [3] Martens, J. (2010). _Deep learning via Hessian-free optimization_. Proceedings of the 27th International Conference on Machine Learning (ICML-10), 735-742.
+
+[4] Gomes, D. M., Zhang, Y., Belilovsky, E., Wolf, G., & Hosseini, M. S. (2025). AdaFisher: Adaptive Second Order Optimization via Fisher Information. _The Thirteenth International Conference on Learning Representations_. <https://openreview.net/forum?id=puTxuiK2qO>
