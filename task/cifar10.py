@@ -124,7 +124,7 @@ class Cifar10Task:
         # 根据优化器类型决定是否创建计算图
         # 所有优化器都需要计算梯度范数，因此所有 loss.backward 都需要 create_graph=True
         # 但为了避免不必要的开销，只在需要二阶梯度的优化器中保留 create_graph=True
-        needs_second_order = hasattr(optimizer, '__class__') and optimizer.__class__.__name__ in ['F3EO', 'AdaHessian']
+        needs_second_order = hasattr(optimizer, '__class__') and optimizer.__class__.__name__ in ['F3EO', 'F3EW', 'AdaHessian']
 
         for batch_idx, (inputs, targets) in enumerate(train_loader):
             inputs, targets = inputs.to(self.device), targets.to(self.device)

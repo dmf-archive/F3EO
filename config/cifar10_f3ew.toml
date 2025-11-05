@@ -16,8 +16,8 @@ n_holes = 1        # cutout参数
 cutout_length = 16 # cutout长度
 
 [optimizer]
-name = "AdamW"      # 使用AdamW优化器
-lr = 0.001          # 对齐AdaFisher的学习率
+name = "F3EW"
+lr = 1.0            # 对齐 Newton 的学习率
 weight_decay = 5e-4
 
 [scheduler]

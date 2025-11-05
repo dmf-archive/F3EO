@@ -61,6 +61,9 @@ def create_optimizer_scheduler(model, config, train_loader):
     elif optimizer_name == "F3EO":
         from optimizer.F3EO import F3EO
         optimizer = F3EO(model.parameters(), lr=lr, weight_decay=weight_decay)
+    elif optimizer_name == "F3EW":
+        from optimizer.F3EW import F3EW
+        optimizer = F3EW(model.parameters(), lr=lr, weight_decay=weight_decay)
     else:
         raise ValueError(f"Unknown optimizer: {optimizer_name}")
 

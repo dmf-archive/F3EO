@@ -17,12 +17,12 @@ cutout_length = 16 # cutout长度
 
 [optimizer]
 name = "F3EO"
-lr = 0.001         # 对齐AdaFisher的学习率
+lr = 0.001          # 对齐AdaFisher的学习率
 weight_decay = 5e-4
 
 [scheduler]
-name = "cosine"    # 使用CosineAnnealingLR
-T_max = 200        # 对齐AdaFisher
+name = "cosine" # 使用CosineAnnealingLR
+T_max = 200     # 对齐AdaFisher
 
 [train]
 epochs = 200
@@ -31,4 +31,4 @@ ckpt_every = 50
 
 [early_stop]
 patience = 10
-threshold = 0.3  # 0.3% accuracy improvement required
+threshold = 0.3 # 0.3% accuracy improvement required
