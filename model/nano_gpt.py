@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from utils.embeddings import GPT1Embedding
+from model.embeddings import GPT1Embedding
 
 
 class MultiHeadedAttention(nn.Module):

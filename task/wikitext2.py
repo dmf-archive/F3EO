@@ -24,9 +24,12 @@ def get_or_train_tokenizer(config: dict[str, Any]) -> Tokenizer:
         # Train a new tokenizer
         dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
 
-        def get_training_corpus() -> Iterator[str]:
+        def get_training_corpus() -> Iterator[list[str]]:
             for i in range(0, len(dataset), 1000):
-                yield [item['text'] for item in dataset[i : i + 1000] if item['text']]
+                # Correctly access the list of texts from the sliced dictionary
+                batch_texts = dataset[i : i + 1000]['text']
+                # Filter out empty or whitespace-only strings
+                yield [text for text in batch_texts if text.strip()]
 
         tokenizer = Tokenizer(models.BPE())
         tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
@@ -120,6 +123,7 @@ class Wikitext2Task:
         model.train()
         total_loss = 0.0
         total_tokens = 0
+        last_callback_time = time.time()
 
         needs_second_order = hasattr(optimizer, '__class__') and optimizer.__class__.__name__ in ['F3EO', 'F3EL', 'F3EW', 'AdaHessian']
 
@@ -147,7 +151,14 @@ class Wikitext2Task:
             if progress_callback and (batch_idx + 1) % 10 == 0:
                 current_ppl = math.exp(loss.item())
                 grad_norm = monitor.compute_grad_norm(model)
-                progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_ppl, grad_norm, 0.0)
+                
+                current_time = time.time()
+                time_elapsed = current_time - last_callback_time
+                steps_processed = 10
+                steps_per_sec = steps_processed / time_elapsed if time_elapsed > 0 else 0.0
+                last_callback_time = current_time
+
+                progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_ppl, grad_norm, steps_per_sec)
 
         avg_loss = total_loss / total_tokens if total_tokens > 0 else 0
         perplexity = math.exp(avg_loss) if avg_loss > 0 else float('inf')

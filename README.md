@@ -62,11 +62,11 @@ F3EO employs **Double Backpropagation** to efficiently compute the Hessian-Vecto
     meta_grad = torch.autograd.grad(L_meta, network.parameters())
     ```
 
-5. **Synergy Maximization**: The third-order correction `δ` is **subtracted from the original gradient `g`** to form an `effective_grad`. This update rule actively maximizes the Fisher Information Trace, pushing the model towards a state of higher internal synergy.
+5. **Complexity Maximization**: The third-order correction `δ` is **subtracted from the original gradient `g`** to form an `effective_grad`. This update rule actively maximizes the Fisher Information Trace, pushing the model towards a state of higher internal complexity.
 
     ```python
     # Simplified implementation, actual code may include orthogonal projection logic
-    effective_grad = g - meta_grad # Note: Subtraction to MAXIMIZE synergy
+    effective_grad = g - meta_grad # Note: Subtraction to MAXIMIZE complexity
     ```
 
 6. **Parameter Update**: Use Adam-style momentum to smooth `effective_grad` and update parameters.
@@ -77,7 +77,7 @@ This approach ensures:
 - The third-order correction **locally fine-tunes** the parameter space geometry without disrupting optimization stability.
 - The entire computation graph naturally unfolds in subsequent backpropagations, continuously accumulating higher-order curvature information.
 
-F3EO no longer passively adapts to the loss landscape but **actively pushes parameters towards a state of maximum synergy**, building a richer and more structured internal world model with each iteration. This lays an engineering-feasible foundation for "zero-shot adaptation" and catastrophic forgetting resistance.
+F3EO no longer passively adapts to the loss landscape but **actively pushes parameters towards a state of maximum complexity**, building a richer and more structured internal world model with each iteration. This lays an engineering-feasible foundation for "zero-shot adaptation" and catastrophic forgetting resistance.
 
 ## 📊 Performance Evaluation
 
