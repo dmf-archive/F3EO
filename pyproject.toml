@@ -16,6 +16,8 @@ dependencies = [
     "einops>=0.8.1",
     "asdl",
     "timm>=1.0.21",
+    "datasets[progress]>=4.4.1",
+    "tokenizers>=0.22.1",
 ]
 
 [tool.pytest.ini_options]
