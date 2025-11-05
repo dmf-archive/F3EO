@@ -17,7 +17,7 @@ cutout_length = 16 # cutout长度
 
 [optimizer]
 name = "F3EW"
-lr = 1.0            # 对齐 Newton 的学习率
+lr = 1e-3           # 复刻标准配置
 weight_decay = 5e-4
 
 [scheduler]

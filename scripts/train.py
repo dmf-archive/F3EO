@@ -223,17 +223,7 @@ def train(config: dict[str, Any], task_class) -> None:
 
             # 更新最佳指标
             monitor_metric = valid_results.get("perplexity", valid_results.get("accuracy"))
-            is_best = False
-            if config['experiment']['task'] == 'wikitext2':
-                if monitor_metric < monitor.best_metric: # 使用 monitor.best_metric
-                    is_best = True
-            else:
-                if monitor_metric > monitor.best_metric: # 使用 monitor.best_metric
-                    is_best = True
             
-            best_metric = monitor.best_metric # 从 monitor 获取
-            best_epoch = monitor.best_epoch # 从 monitor 获取
-
             table = Table(title=f"Epoch {epoch+1} Results")
             table.add_column("Split", style="cyan")
             table.add_column("Loss", justify="right", style="magenta")
@@ -251,9 +241,8 @@ def train(config: dict[str, Any], task_class) -> None:
 
             progress.update(overall_epoch_task, advance=1)
 
-            # 保存检查点
-            if (epoch + 1) % config["train"]["ckpt_every"] == 0 or is_best:
-                monitor.save_checkpoint(epoch, model, optimizer, scheduler, is_best=is_best)
+            # 每个 epoch 结束都保存检查点，由 monitor 内部管理轮动
+            monitor.save_checkpoint(model, optimizer, scheduler)
 
             # 早停检查
             if early_stop(monitor_metric):
@@ -264,7 +253,8 @@ def train(config: dict[str, Any], task_class) -> None:
             report_gen.generate_summary()
 
     console.print("\n[bold green]Training completed![/bold green]")
-    console.print(f"[bold]Best validation {metric_name.lower()}: {best_metric:.2f} at epoch {best_epoch}[/bold]")
+    metric_name = "Perplexity" if config['experiment']['task'] == 'wikitext2' else "Accuracy"
+    console.print(f"[bold]Best validation {metric_name.lower()}: {monitor.best_metric:.2f} at epoch {monitor.best_epoch + 1}[/bold]")
     console.print(f"[dim]Report saved to: {output_dir}/summary.md[/dim]")
 
 

@@ -219,12 +219,11 @@ class TrainingMonitor:
             "avg_epoch_time": sum(self.epoch_times) / len(self.epoch_times) if self.epoch_times else 0
         }
 
-    def save_checkpoint(self, epoch: int, model: torch.nn.Module, optimizer: torch.optim.Optimizer,
-                       scheduler: torch.optim.lr_scheduler._LRScheduler | None,
-                       is_best: bool = False) -> Path:
+    def save_checkpoint(self, model: torch.nn.Module, optimizer: torch.optim.Optimizer,
+                       scheduler: torch.optim.lr_scheduler._LRScheduler | None) -> Path:
         """保存训练检查点，使用轮动机制控制磁盘空间"""
         checkpoint = {
-            "epoch": epoch,
+            "epoch": self.current_epoch,
             "step": self.current_step,
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
@@ -238,31 +237,23 @@ class TrainingMonitor:
             "timestamp": time.time()
         }
 
-        # 保存epoch检查点
-        checkpoint_path = self.output_dir / f"checkpoint_epoch_{epoch + 1}.pt"
+        # 保存当前 epoch 的检查点
+        checkpoint_path = self.output_dir / f"checkpoint_epoch_{self.current_epoch + 1}.pt"
         torch.save(checkpoint, checkpoint_path)
+        self.console.print(f"[dim]Saved epoch checkpoint: {checkpoint_path.name}[/dim]")
 
-        # 添加到检查点列表
+        # 添加到检查点列表并执行轮动
         self.checkpoint_files.append(checkpoint_path)
-
-        # 如果超过最大数量，删除最老的检查点
         if len(self.checkpoint_files) > self.max_checkpoints:
             oldest_checkpoint = self.checkpoint_files.pop(0)
             if oldest_checkpoint.exists():
-                oldest_checkpoint.unlink()  # 删除文件
+                oldest_checkpoint.unlink()
                 self.console.print(f"[dim]Removed old checkpoint: {oldest_checkpoint.name}[/dim]")
 
-        # 如果是最佳模型，额外保存
-        if is_best:
-            best_path = self.output_dir / "best_model.pt"
-            torch.save(checkpoint, best_path)
-            self.console.print("[green]Saved best model checkpoint[/green]")
-
-        # 保存最新检查点（总是更新）
+        # 总是更新 latest_checkpoint.pt
         latest_path = self.output_dir / "latest_checkpoint.pt"
         torch.save(checkpoint, latest_path)
 
-        self.console.print(f"[dim]Saved checkpoint: {checkpoint_path.name}[/dim]")
         return checkpoint_path
 
     def load_checkpoint(self, checkpoint_path: Path) -> dict[str, Any]:

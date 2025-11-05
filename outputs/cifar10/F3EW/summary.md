@@ -5,7 +5,7 @@
 |-|-------|
 | Task | cifar10 |
 | Model | resnet18_cifar |
-| Optimizer | F3EO |
+| Optimizer | F3EW |
 | Learning Rate | 0.001 |
 | Weight Decay | 0.0005 |
 | Epochs | 1 |
@@ -16,13 +16,13 @@
 ## Training Results
 | Epoch | Train Loss | Valid Loss | Train Accuracy (%) | Valid Accuracy (%) | Learning Rate | Time |
 |-----|--|-----|-----|-----|-----|------|
-| 1 | 1.7282 | 1.7533 | 35.77 | 40.15 | 0.001000 | 252.31s |
+| 1 | 2.3511 | 2.3013 | 10.07 | 8.86 | 0.001000 | 246.65s |
 
 ## Performance Summary
-- **Best Validation Accuracy (%)**: 40.15
-- **Final Validation Accuracy (%)**: 40.15
-- **Total Training Time**: 252.78s
-- **Average Epoch Time**: 252.31s
+- **Best Validation Accuracy (%)**: 8.86
+- **Final Validation Accuracy (%)**: 8.86
+- **Total Training Time**: 246.66s
+- **Average Epoch Time**: 246.65s
 
 ## Configuration Details
 ```toml
@@ -45,7 +45,7 @@
     "cutout_length": 16
   },
   "optimizer": {
-    "name": "F3EO",
+    "name": "F3EW",
     "lr": 0.001,
     "weight_decay": 0.0005
   },
