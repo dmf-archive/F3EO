@@ -98,8 +98,8 @@ class F3EO(Optimizer):
                                 projection_scale = torch.dot(meta_grad_flat, first_grad_flat) / first_grad_dot
                                 meta_grad = meta_grad - projection_scale * first_grad
                         
-                        # 最终有效梯度为一阶梯度加上正交化后的三阶修正
-                        effective_grad = first_grad + meta_grad
+                        # 最终有效梯度为一阶梯度减去正交化后的三阶修正（符号反转）
+                        effective_grad = first_grad - meta_grad
 
                     state = self.state[p]
                     if len(state) == 0:
