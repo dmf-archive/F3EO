@@ -18,7 +18,7 @@ tokenizer_path = "./data/wikitext2_tokenizer.json"
 
 [optimizer]
 name = "F3EO"
-lr = 0.001       # 对齐AdaFisher的学习率
+lr = 0.0001       # 对齐AdaFisher的学习率
 weight_decay = 5e-4  # 对齐AdaFisher
 
 # [scheduler]
@@ -26,7 +26,7 @@ weight_decay = 5e-4  # 对齐AdaFisher
 # T_max = 10
 
 [train]
-epochs = 10
+epochs = 30
 log_every = 10
 ckpt_every = 2
 
