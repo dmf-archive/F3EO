@@ -1,0 +1,32 @@
+[experiment]
+task = "cifar10"
+seed = 42
+device = "cuda"
+
+[model]
+arch = "resnet18_cifar"
+num_classes = 10
+
+[data]
+batch_size = 256   # 对齐AdaFisher
+num_workers = 5    # 对齐AdaFisher
+aug = true         # 启用数据增强
+cutout = true      # 启用cutout增强
+n_holes = 1        # cutout参数
+cutout_length = 16 # cutout长度
+
+[optimizer]
+name = "F3EPI"
+lr = 0.001          # 对齐AdaFisher的学习率，但去除拖后腿的调度器
+weight_decay = 5e-4
+alpha = 1.0         # PI公式中的alpha系数
+gamma = 0.1         # PI公式中的gamma系数
+
+[train]
+epochs = 50
+log_every = 10
+ckpt_every = 50
+
+[early_stop]
+patience = 10
+threshold = 0.3 # 0.3% accuracy improvement required
