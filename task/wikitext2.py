@@ -152,6 +152,15 @@ class Wikitext2Task:
             if progress_callback and (batch_idx + 1) % 10 == 0:
                 current_ppl = math.exp(loss.item())
                 grad_norm = monitor.compute_grad_norm(model)
+                
+                # 获取F3EPI的log(PI)值
+                log_pi = None
+                beta_complexity = None
+                if hasattr(optimizer, '__class__') and optimizer.__class__.__name__ == 'F3EPI':
+                    log_pi = optimizer.last_log_pi
+                    # 计算beta_complexity用于显示
+                    import torch
+                    beta_complexity = torch.tanh(torch.tensor(log_pi)).item() if log_pi is not None else None
 
                 current_time = time.time()
                 time_elapsed = current_time - last_callback_time
@@ -159,7 +168,10 @@ class Wikitext2Task:
                 steps_per_sec = steps_processed / time_elapsed if time_elapsed > 0 else 0.0
                 last_callback_time = current_time
 
-                progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_ppl, grad_norm, steps_per_sec)
+                progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_ppl, grad_norm, steps_per_sec, log_pi, beta_complexity)
+                
+                # 更新监控器的step级别指标，包含PI值
+                monitor.end_step(model, loss.item(), optimizer.param_groups[0]['lr'], log_pi, beta_complexity)
 
         avg_loss = total_loss / total_tokens if total_tokens > 0 else 0
         perplexity = math.exp(avg_loss) if avg_loss > 0 else float('inf')

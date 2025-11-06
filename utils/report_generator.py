@@ -15,7 +15,8 @@ class ReportGenerator:
             "train_metric": [],
             "valid_metric": [],
             "learning_rate": [],
-            "epoch_time": []
+            "epoch_time": [],
+            "log_pi": []
         }
         if preload_history is not None:
             for key in self.metrics_history:
@@ -25,12 +26,13 @@ class ReportGenerator:
         self.task_type = config["experiment"]["task"]
 
     def log_epoch(self, epoch_num: int, train_results: dict[str, float],
-                  valid_results: dict[str, float], lr: float, epoch_time: float):
+                  valid_results: dict[str, float], lr: float, epoch_time: float, log_pi: float | None = None):
         self.metrics_history["epoch"].append(epoch_num) # Change to epoch_num
         self.metrics_history["train_loss"].append(train_results["loss"])
         self.metrics_history["valid_loss"].append(valid_results["loss"])
         self.metrics_history["learning_rate"].append(lr)
         self.metrics_history["epoch_time"].append(epoch_time)
+        self.metrics_history["log_pi"].append(log_pi) 
 
         if self.task_type == "wikitext2":
             self.metrics_history["train_metric"].append(train_results["perplexity"])
@@ -62,6 +64,11 @@ class ReportGenerator:
             row += f"{self.metrics_history['train_metric'][i]:.2f} | "
             row += f"{self.metrics_history['valid_metric'][i]:.2f} | "
             row += f"{self.metrics_history['learning_rate'][i]:.6f} | "
+            log_pi_val = self.metrics_history['log_pi'][i]
+            if log_pi_val is not None:
+                row += f"{log_pi_val:.3f} | "
+            else:
+                row += f"N/A | "
             row += f"{self.metrics_history['epoch_time'][i]:.2f}s |"
             table_rows.append(row)
 
@@ -83,8 +90,8 @@ class ReportGenerator:
 | Seed | {self.config['experiment']['seed']} |
 
 ## Training Results
-| Epoch | Train Loss | Valid Loss | Train {metric_name} | Valid {metric_name} | Learning Rate | Time |
-|-----|--|-----|-----|-----|-----|------|
+| Epoch | Train Loss | Valid Loss | Train {metric_name} | Valid {metric_name} | Learning Rate | Log(PI) | Time |
+|-----|--|-----|-----|-----|-----|--------|------|
 {table_content}
 
 ## Performance Summary

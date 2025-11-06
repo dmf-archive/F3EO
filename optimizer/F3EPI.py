@@ -3,6 +3,8 @@ from torch.optim.optimizer import Optimizer
 
 
 class F3EPI(Optimizer):
+    """F3EPI优化器：预测完整性引导的三阶优化器"""
+    
     def __init__(self,
                  params,
                  lr=1e-3,
@@ -34,6 +36,7 @@ class F3EPI(Optimizer):
 
         self.single_gpu = single_gpu
         super(F3EPI, self).__init__(params, defaults)
+        self.last_log_pi = 0.0  # 用于记录最后一次的log(PI)值
 
     def step(self, closure=None, loss=None):
         eval_loss = None
@@ -57,29 +60,33 @@ class F3EPI(Optimizer):
                     grads.append(p.grad)
 
         if not grads:
-            return loss
+            return main_loss
 
-        # 计算梯度的L2范数的平方
-        grad_norm_sq = torch.sum(torch.stack([g.pow(2).sum() for g in grads]))
+        # 计算用于 meta_grads 的梯度L2范数的平方 (保留计算图)
+        grad_norm_sq_for_meta = sum(g.pow(2).sum() for g in grads)
 
-        # 计算PI对数
+        # 计算用于PI的梯度范数 (脱离计算图，避免内存泄漏和stack问题)
+        beta_complexity = 0.0
         if main_loss is not None:
-            grad_norm = torch.norm(torch.stack([g.detach() for g in grads]))
+            grad_norm_for_pi = torch.sqrt(sum(g.detach().pow(2).sum() for g in grads))
             alpha = self.param_groups[0]['alpha']
             gamma = self.param_groups[0]['gamma']
-            log_pi = -alpha * main_loss.detach() - alpha * gamma * grad_norm
+            log_pi = -alpha * main_loss.detach() + alpha * gamma * grad_norm_for_pi
             beta_complexity = torch.tanh(log_pi)
+            self.last_log_pi = log_pi.item()  # 保存log(PI)值用于监控
         else:
             beta_complexity = 0.0
+            self.last_log_pi = 0.0
 
         # 计算 meta_grads (即 ∇θ ||g||²)
-        meta_grads = torch.autograd.grad(grad_norm_sq, params_with_grad, retain_graph=False, allow_unused=True)
+        meta_grads = torch.autograd.grad(grad_norm_sq_for_meta, params_with_grad, retain_graph=False, allow_unused=True)
 
         # 对元梯度进行范数裁剪
         clip_value = self.param_groups[0]['meta_grad_clip_norm']
         if clip_value > 0:
             device = params_with_grad[0].device
-            total_norm = torch.norm(torch.stack([torch.norm(g.detach(), 2).to(device) for g in meta_grads if g is not None]), 2)
+            # 计算元梯度范数 - 避免使用stack，直接求和
+            total_norm = torch.sqrt(sum(torch.norm(g.detach(), 2).pow(2) for g in meta_grads if g is not None))
             clip_coef = clip_value / (total_norm + 1e-6)
 
             if clip_coef < 1:

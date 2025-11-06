@@ -26,6 +26,8 @@ class TrainingMetrics:
     gpu_memory_percent: float = 0.0
     cpu_memory_percent: float = 0.0
     timestamp: float = 0.0
+    log_pi: float | None = None
+    beta_complexity: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -95,7 +97,7 @@ class TrainingMonitor:
         """记录步骤开始时间"""
         self.step_start_time = time.time()
 
-    def end_step(self, model: torch.nn.Module, loss: float, lr: float) -> TrainingMetrics:
+    def end_step(self, model: torch.nn.Module, loss: float, lr: float, log_pi: float | None = None, beta_complexity: float | None = None) -> TrainingMetrics:
         """记录步骤结束并计算所有指标"""
         step_time = time.time() - self.step_start_time
         iter_per_sec = 1.0 / step_time if step_time > 0 else 0.0
@@ -118,7 +120,9 @@ class TrainingMonitor:
             gpu_memory_gb=gpu_memory_gb,
             gpu_memory_percent=gpu_memory_percent,
             cpu_memory_percent=cpu_memory,
-            timestamp=time.time()
+            timestamp=time.time(),
+            log_pi=log_pi,
+            beta_complexity=beta_complexity
         )
 
         self.metrics_history.append(metrics)
@@ -159,6 +163,7 @@ class TrainingMonitor:
             "epoch_time": epoch_time,
             "train_metric": train_results.get("accuracy", train_results.get("perplexity")),
             "valid_metric": valid_results.get("accuracy", valid_results.get("perplexity")),
+            "log_pi": self.metrics_history[-1].log_pi if self.metrics_history and self.metrics_history[-1].log_pi is not None else None,
         }
         self.epoch_metrics_history.append(epoch_summary)
 
@@ -188,6 +193,12 @@ class TrainingMonitor:
             table.add_row("Accuracy", f"{metrics.accuracy:.2f}%")
         if metrics.perplexity is not None:
             table.add_row("Perplexity", f"{metrics.perplexity:.2f}")
+
+        # F3EPI特定指标
+        if metrics.log_pi is not None:
+            table.add_row("Log(PI)", f"{metrics.log_pi:.3f}")
+        if metrics.beta_complexity is not None:
+            table.add_row("β_complexity", f"{metrics.beta_complexity:.3f}")
 
         # 性能指标
         table.add_row("Grad Norm", f"{metrics.grad_norm:.4f}" if metrics.grad_norm else "N/A")

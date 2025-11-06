@@ -131,6 +131,7 @@ def train(config: dict[str, Any], task_class) -> None:
             "valid_metric": [m["valid_metric"] for m in monitor.epoch_metrics_history],
             "learning_rate": [m["learning_rate"] for m in monitor.epoch_metrics_history],
             "epoch_time": [m["epoch_time"] for m in monitor.epoch_metrics_history],
+            "log_pi": [m.get("log_pi") for m in monitor.epoch_metrics_history],
         }
     report_gen = ReportGenerator(config, output_dir, preload_history=preload_history)
 
@@ -181,7 +182,7 @@ def train(config: dict[str, Any], task_class) -> None:
 
             monitor.start_epoch(epoch, len(train_loader))
             # Step 级进度条和实时监控
-            def step_progress_callback(step, total_steps, loss, metric, grad_norm=None, items_per_sec=None):
+            def step_progress_callback(step, total_steps, loss, metric, grad_norm=None, items_per_sec=None, log_pi=None, beta_complexity=None):
                 if step % 10 == 0:  # 每10步更新一次
                     base_msg = f"[dim]Epoch {current_epoch}/{epochs} | Step {step}/{total_steps} | Loss: {loss:.4f}"
                     if config['experiment']['task'] == 'wikitext2':
@@ -193,6 +194,10 @@ def train(config: dict[str, Any], task_class) -> None:
                         base_msg += f" | Grad: {grad_norm:.4f}"
                     if items_per_sec is not None:
                         base_msg += f" | {items_per_sec:.1f}it/s"
+                    if log_pi is not None:
+                        base_msg += f" | Log(PI): {log_pi:.3f}"
+                    if beta_complexity is not None:
+                        base_msg += f" | β: {beta_complexity:.3f}"
 
                     console.print(base_msg + "[/dim]")
 
@@ -204,8 +209,13 @@ def train(config: dict[str, Any], task_class) -> None:
             # 记录学习率
             current_lr = optimizer.param_groups[0]['lr']
 
+            # 获取F3EPI的log(PI)值用于epoch报告
+            epoch_log_pi = None
+            if config["optimizer"]["name"] == "F3EPI" and hasattr(optimizer, 'last_log_pi'):
+                epoch_log_pi = optimizer.last_log_pi
+            
             # 记录指标到报告生成器
-            report_gen.log_epoch(epoch + 1, train_results, valid_results, current_lr, epoch_time)
+            report_gen.log_epoch(epoch + 1, train_results, valid_results, current_lr, epoch_time, epoch_log_pi)
 
             # 更新 TrainingMonitor 中的 epoch 级别指标
             monitor_output = monitor.end_epoch(train_results, valid_results, current_lr)
