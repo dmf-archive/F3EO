@@ -33,3 +33,7 @@ _数据来源: 论文 Table 2_
 | AdaFisherW | 89.26      |
 
 _数据来源: 论文 Table 5_
+
+## 待办笔记
+
+- **优化器输出目录命名**: 当前 [`scripts/train.py`](scripts/train.py) 和 [`utils/training_monitor.py`](utils/training_monitor.py) 使用优化器名称而非实验配置名称来创建输出文件夹（用于保存检查点和摘要）。这极不利于调参和实验管理，必须修复为使用实验配置名称。

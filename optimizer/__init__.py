@@ -28,32 +28,9 @@ def get_optimizer(name: str, params, **config):
         tags["requires_second_order"] = True
 
     # F3E 系列：全部需要二阶梯度，部分需要传 loss
-    elif name == "F3EO":
-        from .F3EO import F3EO
-        opt = F3EO(params, **config)
-        tags["requires_second_order"] = True
-
-    elif name == "F3EL":
-        from .F3EL import F3EL
-        opt = F3EL(params, **config)
-        tags["requires_second_order"] = True
-        tags["passes_loss_to_step"] = True
-
     elif name == "F3EPI":
         from .F3EPI import F3EPI
         opt = F3EPI(params, **config)
-        tags["requires_second_order"] = True
-        tags["passes_loss_to_step"] = True
-
-    elif name == "F3EPIRMS":
-        from .F3EPI_RMS import F3EPIRMS
-        opt = F3EPIRMS(params, **config)
-        tags["requires_second_order"] = True
-        tags["passes_loss_to_step"] = True
-
-    elif name == "F3EPIAdaX":
-        from .F3EPI_AdaX import F3EPIAdaX
-        opt = F3EPIAdaX(params, **config)
         tags["requires_second_order"] = True
         tags["passes_loss_to_step"] = True
 
