@@ -112,7 +112,7 @@ class Cifar10Task:
 
     def train_epoch(self, model: nn.Module, train_loader: DataLoader,
                    optimizer: torch.optim.Optimizer, criterion: nn.Module,
-                   monitor: Any, progress_callback=None) -> dict[str, float]: # 添加 monitor 参数
+                   monitor: Any, progress_callback=None, optimizer_tags=None) -> dict[str, float]:
         model.train()
         total_loss = 0.0
         correct = 0
@@ -121,10 +121,9 @@ class Cifar10Task:
         epoch_start_time = time.time()
         last_callback_time = epoch_start_time
 
-        # 根据优化器类型决定是否创建计算图
-        # 所有优化器都需要计算梯度范数，因此所有 loss.backward 都需要 create_graph=True
-        # 但为了避免不必要的开销，只在需要二阶梯度的优化器中保留 create_graph=True
-        needs_second_order = hasattr(optimizer, '__class__') and optimizer.__class__.__name__ in ['F3EO', 'F3EL', 'F3EW', 'AdaHessian']
+        # 消费来自工厂的通用标签
+        needs_second_order = optimizer_tags.get("requires_second_order", False) if optimizer_tags else False
+        passes_loss_to_step = optimizer_tags.get("passes_loss_to_step", False) if optimizer_tags else False
 
         for batch_idx, (inputs, targets) in enumerate(train_loader):
             inputs, targets = inputs.to(self.device), targets.to(self.device)
@@ -135,13 +134,12 @@ class Cifar10Task:
 
             if needs_second_order:
                 loss.backward(create_graph=True)
-                # 对于需要二阶梯度的优化器，将 loss 张量传递给 step 方法
-                if optimizer.__class__.__name__ in ['F3EL']:
+                if passes_loss_to_step:
                     optimizer.step(loss=loss)
                 else:
                     optimizer.step()
             else:
-                loss.backward() # 对于一阶优化器，不需要 create_graph=True
+                loss.backward()
                 optimizer.step()
 
             total_loss += loss.item()

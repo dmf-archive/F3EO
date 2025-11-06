@@ -56,7 +56,8 @@ def create_optimizer_scheduler(model, config, train_loader):
     if optimizer_name == "AdaFisher":
         optimizer_config["model"] = model
 
-    optimizer = get_optimizer(optimizer_name, model.parameters(), **optimizer_config)
+    # 新工厂接口：返回 (optimizer, tags_dict)
+    optimizer, tags = get_optimizer(optimizer_name, model.parameters(), **optimizer_config)
 
     scheduler = None
     if "scheduler" in config:
@@ -71,7 +72,7 @@ def create_optimizer_scheduler(model, config, train_loader):
                 gamma=config["scheduler"]["gamma"]
             )
 
-    return optimizer, scheduler
+    return optimizer, scheduler, tags
 
 
 def train(config: dict[str, Any], task_class) -> None:
@@ -86,7 +87,7 @@ def train(config: dict[str, Any], task_class) -> None:
     train_loader, valid_loader = task.get_dataloaders()
     model = task.get_model().to(device)
     criterion = task.get_criterion()
-    optimizer, scheduler = create_optimizer_scheduler(model, config, train_loader)
+    optimizer, scheduler, optimizer_tags = create_optimizer_scheduler(model, config, train_loader)
 
     epochs = config["train"]["epochs"]
 
@@ -201,7 +202,8 @@ def train(config: dict[str, Any], task_class) -> None:
 
                     console.print(base_msg + "[/dim]")
 
-            train_results = task.train_epoch(model, train_loader, optimizer, criterion, monitor, step_progress_callback)
+            # 将优化器能力标签传递给任务脚本
+            train_results = task.train_epoch(model, train_loader, optimizer, criterion, monitor, step_progress_callback, optimizer_tags)
             valid_results = task.validate_epoch(model, valid_loader, criterion)
 
             epoch_time = time.time() - start_time
@@ -209,11 +211,11 @@ def train(config: dict[str, Any], task_class) -> None:
             # 记录学习率
             current_lr = optimizer.param_groups[0]['lr']
 
-            # 获取F3EPI的log(PI)值用于epoch报告
+            # 获取需要记录 log(PI) 的优化器值用于 epoch 报告
             epoch_log_pi = None
-            if config["optimizer"]["name"] == "F3EPI" and hasattr(optimizer, 'last_log_pi'):
+            if optimizer_tags.get("requires_second_order", False) and hasattr(optimizer, 'last_log_pi'):
                 epoch_log_pi = optimizer.last_log_pi
-            
+
             # 记录指标到报告生成器
             report_gen.log_epoch(epoch + 1, train_results, valid_results, current_lr, epoch_time, epoch_log_pi)
 

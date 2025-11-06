@@ -120,13 +120,15 @@ class Wikitext2Task:
 
     def train_epoch(self, model: nn.Module, train_loader: DataLoader,
                    optimizer: torch.optim.Optimizer, criterion: nn.Module,
-                   monitor: Any, progress_callback=None) -> dict[str, float]:
+                   monitor: Any, progress_callback=None, optimizer_tags=None) -> dict[str, float]:
         model.train()
         total_loss = 0.0
         total_tokens = 0
         last_callback_time = time.time()
 
-        needs_second_order = hasattr(optimizer, '__class__') and optimizer.__class__.__name__ in ['F3EO', 'F3EL', 'F3EW', 'F3EPI', 'AdaHessian']
+        # 消费来自工厂的通用标签
+        needs_second_order = optimizer_tags.get("requires_second_order", False) if optimizer_tags else False
+        passes_loss_to_step = optimizer_tags.get("passes_loss_to_step", False) if optimizer_tags else False
 
         for batch_idx, batch in enumerate(train_loader):
             batch = {k: v.to(self.device) for k, v in batch.items()}
@@ -136,11 +138,10 @@ class Wikitext2Task:
             loss = model.loss(log_probas, batch["target"], batch["mask"])
 
             if needs_second_order:
-                if optimizer.__class__.__name__ in ['F3EL', 'F3EPI']:
-                    loss.backward(create_graph=True)
+                loss.backward(create_graph=True)
+                if passes_loss_to_step:
                     optimizer.step(loss=loss)
                 else:
-                    loss.backward(create_graph=True)
                     optimizer.step()
             else:
                 loss.backward()
@@ -152,15 +153,15 @@ class Wikitext2Task:
             if progress_callback and (batch_idx + 1) % 10 == 0:
                 current_ppl = math.exp(loss.item())
                 grad_norm = monitor.compute_grad_norm(model)
-                
-                # 获取F3EPI的log(PI)值
+
+                # 获取需要记录 log(PI) 的优化器值
                 log_pi = None
                 beta_complexity = None
-                if hasattr(optimizer, '__class__') and optimizer.__class__.__name__ == 'F3EPI':
+                if needs_second_order and hasattr(optimizer, 'last_log_pi'):
                     log_pi = optimizer.last_log_pi
-                    # 计算beta_complexity用于显示
+                    # 计算 beta_complexity 用于显示（新实现已用 clip，此处同步）
                     import torch
-                    beta_complexity = torch.tanh(torch.tensor(log_pi)).item() if log_pi is not None else None
+                    beta_complexity = torch.clamp(torch.tensor(log_pi), -1.0, 1.0).item() if log_pi is not None else None
 
                 current_time = time.time()
                 time_elapsed = current_time - last_callback_time
@@ -169,7 +170,7 @@ class Wikitext2Task:
                 last_callback_time = current_time
 
                 progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_ppl, grad_norm, steps_per_sec, log_pi, beta_complexity)
-                
+
                 # 更新监控器的step级别指标，包含PI值
                 monitor.end_step(model, loss.item(), optimizer.param_groups[0]['lr'], log_pi, beta_complexity)
 

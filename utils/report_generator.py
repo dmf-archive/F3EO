@@ -32,7 +32,7 @@ class ReportGenerator:
         self.metrics_history["valid_loss"].append(valid_results["loss"])
         self.metrics_history["learning_rate"].append(lr)
         self.metrics_history["epoch_time"].append(epoch_time)
-        self.metrics_history["log_pi"].append(log_pi) 
+        self.metrics_history["log_pi"].append(log_pi)
 
         if self.task_type == "wikitext2":
             self.metrics_history["train_metric"].append(train_results["perplexity"])
@@ -68,7 +68,7 @@ class ReportGenerator:
             if log_pi_val is not None:
                 row += f"{log_pi_val:.3f} | "
             else:
-                row += f"N/A | "
+                row += "N/A | "
             row += f"{self.metrics_history['epoch_time'][i]:.2f}s |"
             table_rows.append(row)
 

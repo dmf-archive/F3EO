@@ -4,7 +4,7 @@ from torch.optim.optimizer import Optimizer
 
 class F3EPI(Optimizer):
     """F3EPI优化器：预测完整性引导的三阶优化器"""
-    
+
     def __init__(self,
                  params,
                  lr=1e-3,
