@@ -39,11 +39,6 @@ def get_optimizer(name: str, params, **config):
         tags["requires_second_order"] = True
         tags["passes_loss_to_step"] = True
 
-    elif name == "F3EW":
-        from .F3EW import F3EW
-        opt = F3EW(params, **config)
-        tags["requires_second_order"] = True
-
     elif name == "F3EPI":
         from .F3EPI import F3EPI
         opt = F3EPI(params, **config)
@@ -53,6 +48,12 @@ def get_optimizer(name: str, params, **config):
     elif name == "F3EPIRMS":
         from .F3EPI_RMS import F3EPIRMS
         opt = F3EPIRMS(params, **config)
+        tags["requires_second_order"] = True
+        tags["passes_loss_to_step"] = True
+
+    elif name == "F3EPIAdaX":
+        from .F3EPI_AdaX import F3EPIAdaX
+        opt = F3EPIAdaX(params, **config)
         tags["requires_second_order"] = True
         tags["passes_loss_to_step"] = True
 
