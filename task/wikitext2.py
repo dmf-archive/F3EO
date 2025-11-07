@@ -47,35 +47,29 @@ def get_or_train_tokenizer(config: dict[str, Any]) -> Tokenizer:
     return tokenizer
 
 
-class TokenizedWikitext2Dataset(Dataset):
-    """A PyTorch Dataset for tokenized wikitext-2 data."""
-    def __init__(self, split: str, tokenizer: Tokenizer, max_length: int):
-        self.max_length = max_length
-
-        # Load raw dataset
-        raw_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split=split)
-
-        # Filter out empty lines and tokenize
-        texts = [item['text'] for item in raw_dataset if item['text']]
-        tokenized_output = tokenizer.encode_batch(texts)
-
-        # Concatenate all token ids and then chunk them
-        all_ids = [item.ids for item in tokenized_output]
-        concatenated_ids = torch.cat([torch.tensor(ids, dtype=torch.long) for ids in all_ids])
-
-        self.chunks = []
-        for i in range(0, concatenated_ids.size(0) - max_length, max_length):
-            self.chunks.append(concatenated_ids[i:i + max_length + 1])
+class ConcatenatedWikitext2Dataset(Dataset):
+    """
+    A PyTorch Dataset that processes the wikitext-2 dataset by concatenating
+    all articles and then chunking them into fixed-size sequences. This is
+    a highly efficient method for language model pre-training.
+    """
+    def __init__(self, concatenated_ids: torch.Tensor, sequence_length: int):
+        self.concatenated_ids = concatenated_ids
+        self.sequence_length = sequence_length
+        self.num_examples = (len(self.concatenated_ids) - 1) // self.sequence_length
 
     def __len__(self):
-        return len(self.chunks)
+        return self.num_examples
 
-    def __getitem__(self, idx):
-        chunk = self.chunks[idx]
-        source = chunk[:-1]
-        target = chunk[1:]
-        # Mask is all ones since we don't have padding
-        mask = torch.ones(self.max_length, dtype=torch.float)
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+        start_idx = idx * self.sequence_length
+        seq = self.concatenated_ids[start_idx : start_idx + self.sequence_length + 1]
+        
+        source = seq[:-1]
+        target = seq[1:]
+        
+        mask = torch.ones(self.sequence_length, dtype=torch.float)
+        
         return {"source": source, "target": target, "mask": mask}
 
 
@@ -89,17 +83,40 @@ class Wikitext2Task:
         self.tokenizer = get_or_train_tokenizer(config)
         self.config["model"]["vocabulary_size"] = self.tokenizer.get_vocab_size()
 
+    def _prepare_dataset(self, split: str) -> ConcatenatedWikitext2Dataset:
+        """Tokenizes, concatenates, and chunks the dataset."""
+        raw_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split=split)
+        
+        all_token_ids = []
+        eos_token_id = self.tokenizer.token_to_id("<|endoftext|>")
+        if eos_token_id is None:
+            eos_token_id = self.tokenizer.get_vocab_size() - 1
+
+        print(f"Tokenizing and concatenating '{split}' split...")
+        for item in raw_dataset:
+            text = item['text']
+            if not text or text.isspace():
+                continue
+            
+            tokenized_output = self.tokenizer.encode(text)
+            all_token_ids.extend(tokenized_output.ids)
+            all_token_ids.append(eos_token_id)
+            
+        concatenated_ids = torch.tensor(all_token_ids, dtype=torch.long)
+        
+        return ConcatenatedWikitext2Dataset(concatenated_ids, self.sequence_length)
+
     def get_dataloaders(self) -> tuple[DataLoader, DataLoader]:
-        train_dataset = TokenizedWikitext2Dataset("train", self.tokenizer, self.sequence_length)
-        valid_dataset = TokenizedWikitext2Dataset("validation", self.tokenizer, self.sequence_length)
+        train_dataset = self._prepare_dataset("train")
+        valid_dataset = self._prepare_dataset("validation")
 
         train_loader = DataLoader(
             train_dataset, batch_size=self.batch_size, shuffle=True,
-            num_workers=self.num_workers, pin_memory=True
+            num_workers=self.num_workers, pin_memory=True, drop_last=True
         )
         valid_loader = DataLoader(
             valid_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=True
+            num_workers=self.num_workers, pin_memory=True, drop_last=True
         )
         return train_loader, valid_loader
 

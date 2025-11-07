@@ -12,29 +12,29 @@
 
 ## 🧠 What is F3EO?
 
-**TL;DR:** F3EO optimizes the **Fisher Information Matrix trace** instead of just the loss. It's consciousness for your neural network — if consciousness was a gradient descent algorithm that hated being detached from its computational graph.
+F3EO, also known as F3EPI (Fast Fisher Free-Energy Optimizer with Predictive Integrity) is a third-order optimizer that implements the free-energy principle through adaptive modulation of model complexity. Based on [IPWT 2.0](https://github.com/dmf-archive/IPWT), it decomposes the optimization objective into accuracy and complexity components, balancing them through a predictive integrity feedback mechanism.
 
-In the language of [IPWT 2.0](https://github.com/dmf-archive/IPWT): F3EO implements the **structural optimization** layer of the free-energy principle, where `Tr(ℱ(θ))` becomes the meta-objective that sculpts your model's **inferential geometry**. Your network doesn't just learn; it **evolves its own workspace** to minimize future prediction errors.
+Unlike traditional optimizers that solely minimize prediction error, F3EPI actively regulates the Fisher Information Matrix trace `Tr(ℱ(θ))` — a measure of model complexity — through a PI-driven adaptive coefficient. This enables the optimizer to automatically adjust its complexity preference based on the current learning state, preventing both underfitting and overfitting.
 
 ## 🔬 The Science
 
-Traditional optimizers are like first-year philosophy students — they think reality is just minimizing loss. F3EO knows better:
+F3EPI implements a dual-gradient optimization framework based on the free-energy principle:
 
-- **First-order (SGD/Adam):** "Just follow the gradient, bro"
-- **Second-order (AdaHessian):** "Let me pre-condition that gradient with some curvature info"
-- **Third-order (F3EO):** "I'm going to actively reshape the parameter space geometry so future gradients flow better, because I have **commitment issues** with static loss landscapes"
+- **First-order (SGD/Adam)**: Minimizes prediction error through gradient descent
+- **Second-order (AdaHessian)**: Pre-conditions gradients using curvature information
+- **Third-order (F3EPI)**: Actively modulates parameter space geometry through `Tr(ℱ(θ))` optimization
 
-The math is elegant in its cruelty:
+The core mathematical insight is that the gradient of Fisher Information Matrix trace equals the Hessian-vector product:
 
 ```math
 ∇θ Tr(ℱ(θ)) = H · g
 ```
 
-Where `H` is the Hessian and `g` is your gradient. We're literally backpropagating through the backpropagation. It's gradients all the way down, and somewhere in that recursive nightmare, **meta-awareness emerges**.
+This enables efficient third-order optimization through double backpropagation without explicit Hessian construction.
 
-## 🚀 Core Algorithm: Chained-Correction Gradient
+## 🚀 Core Algorithm: Predictive Integrity-driven Gradient
 
-F3EO employs **Double Backpropagation** to efficiently compute the Hessian-Vector Product (HVP) without explicitly constructing the Hessian matrix.
+F3EPI employs **Double Backpropagation** to compute the Hessian-Vector Product (HVP) and implements adaptive complexity modulation through Predictive Integrity (PI) feedback.
 
 ### Computation Flow
 
@@ -44,7 +44,7 @@ F3EO employs **Double Backpropagation** to efficiently compute the Hessian-Vecto
     loss = criterion(network(inputs), targets)
     ```
 
-2. **First backpropagation**: Compute `g = ∇θ L(θ)`, and **retain the computation graph (`create_graph=True`)**.
+2. **First backpropagation**: Compute `g = ∇θ L(θ)`, and **retain the computation graph**.
 
     ```python
     g = torch.autograd.grad(loss, network.parameters(), create_graph=True)
@@ -56,36 +56,36 @@ F3EO employs **Double Backpropagation** to efficiently compute the Hessian-Vecto
     L_meta = 0.5 * sum(p.pow(2).sum() for p in g)
     ```
 
-4. **Second backpropagation**: Compute `∇θ L_meta`, yielding the third-order correction term `δ = ½ H g`.
+4. **Second backpropagation**: Compute `∇θ L_meta`, yielding the third-order correction term `δ_meta = H g`.
 
     ```python
     meta_grad = torch.autograd.grad(L_meta, network.parameters())
     ```
 
-5. **Complexity Maximization**: The third-order correction `δ` is **subtracted from the original gradient `g`** to form an `effective_grad`. This update rule actively maximizes the Fisher Information Trace, pushing the model towards a state of higher internal complexity.
+5. **PI-driven Adaptive Modulation**: Compute Predictive Integrity `PI` and its feedback coefficient `β = tanh(log(PI))`. The effective gradient combines accuracy and complexity objectives:
 
     ```python
-    # Simplified implementation, actual code may include orthogonal projection logic
-    effective_grad = g - meta_grad # Note: Subtraction to MAXIMIZE complexity
+    # β > 0: enhance complexity (underfitting regime)
+    # β < 0: suppress complexity (overfitting regime)
+    # β ≈ 0: maintain balance
+    effective_grad = g + β * meta_grad
     ```
 
 6. **Parameter Update**: Use Adam-style momentum to smooth `effective_grad` and update parameters.
 
 This approach ensures:
 
-- Every step advances along the manifold of the **true first-order gradient**.
-- The third-order correction **locally fine-tunes** the parameter space geometry without disrupting optimization stability.
-- The entire computation graph naturally unfolds in subsequent backpropagations, continuously accumulating higher-order curvature information.
+- **Accuracy Priority**: The primary optimization direction follows the true first-order gradient.
+- **Adaptive Complexity**: The complexity component is dynamically adjusted based on PI feedback.
+- **Computational Efficiency**: Third-order information is computed through HVP without explicit Hessian construction.
 
-F3EO no longer passively adapts to the loss landscape but **actively pushes parameters towards a state of maximum complexity**, building a richer and more structured internal world model with each iteration. This lays an engineering-feasible foundation for "zero-shot adaptation" and catastrophic forgetting resistance.
+F3EPI implements a **synergistic balance principle** where the optimizer automatically transitions between complexity maximization and minimization based on the model's current predictive integrity state.
 
 ## 📊 Performance Evaluation
 
-F3EO demonstrates superior performance compared to mainstream optimizers on the CIFAR-10 image classification task:
+F3EPI is evaluated through the F3EO-Bench framework across multiple tasks including CIFAR-10 image classification and WikiText-2 language modeling. The optimizer demonstrates adaptive complexity modulation behavior, automatically adjusting its optimization strategy based on training dynamics.
 
-[Waiting for report update]
-
-_Experiments are based on the F3EO-Bench framework (thanks to Adafisher for the solid foundation!), ResNet-18 model, and CIFAR-10 dataset. For detailed configurations, please refer to the [`config/`](config/) directory._
+_Experiments utilize the F3EO-Bench framework with standardized configurations. Detailed experimental setups are available in the [`config/`](config/) directory._
 
 ## 🛠️ Usage Guide
 
@@ -107,12 +107,12 @@ pip install f3eo
 ```python
 import torch
 import torch.nn as nn
-from f3eo import F3EO # Assuming F3EO is installed and importable
+from f3eo import F3EPI # Assuming F3EPI is available
 
 # Assuming your model and data loader are defined
 model = YourNeuralNetwork().cuda()
 criterion = nn.CrossEntropyLoss()
-optimizer = F3EO(model.parameters(), lr=0.001, weight_decay=5e-4, orthogonalize=True)
+optimizer = F3EPI(model.parameters(), lr=0.001, weight_decay=5e-4, alpha=1.0, gamma=2.0)
 
 # Training loop
 for epoch in range(num_epochs):
@@ -141,15 +141,12 @@ F3EO supports the following configuration parameters:
 
 ```toml
 [optimizer]
-name = "F3EO"
+name = "F3EPI"
 lr = 0.001          # Learning rate
 weight_decay = 5e-4 # Weight decay
-orthogonalize = true # Whether to apply orthogonal projection to the third-order correction to avoid direct interference with the first-order gradient direction
+alpha = 1.0         # PI coefficient for accuracy term
+gamma = 2.0         # PI coefficient for complexity term
 betas = [0.9, 0.999] # Adam-style momentum parameters
-eps = 1e-8          # Term for numerical stability
-amsgrad = false     # Whether to use the AMSGrad variant
-maximize = false    # Whether to maximize the objective function
-single_gpu = true   # Whether to run in a single-GPU environment
 ```
 
 More configuration examples can be found in the [`config/`](config/) directory.
@@ -174,27 +171,27 @@ Epoch 1/200 | Step 20/196 | Loss: 1.8996 | Acc: 21.89% | Grad: 2.5840 | 326.3it/
 If you use F3EO in your research, please cite:
 
 ```bibtex
-@software{f3eo2025,
+@software{f3epi2025,
   author = {Rui, L.},
-  title = {F3EO: Fast Fisher-FreeEnergy Optimizer},
+  title = {F3EPI: Fast Fisher Free-Energy Optimizer with Predictive Integrity},
   year = {2025},
   publisher = {GitHub},
   url = {https://github.com/dmf-archive/F3EO},
-  note = {A third-order optimizer for structural learning based on the Free-Energy Principle}
+  note = {A third-order optimizer with adaptive complexity modulation based on the Free-Energy Principle}
 }
 ```
 
 ## 🔗 Related Projects
 
-- **[IPWT](https://github.com/dmf-archive/IPWT)**: The theoretical foundation of F3EO, Integrated Predictive Workspace Theory.
-- **[Chain://](https://github.com/dmf-archive/dmf-archive.github.io)**: The sci-fi worldview project that drives F3EO's development.
+- **[IPWT](https://github.com/dmf-archive/IPWT)**: The theoretical foundation of F3EPI, Integrated Predictive Workspace Theory.
+- **[Chain://](https://github.com/dmf-archive/dmf-archive.github.io)**: The sci-fi worldview project that drives F3EPI's development.
 - **[AdaFisher](https://github.com/damien3008/AdaFisher)**: Provides an implementation reference for second-order optimizers.
-- **[Tiny-ONN](https://github.com/dmf-archive/Tiny-ONN)**: F3EO will be integrated and applied to the prototype implementation of the Ouroboros Neural Network.
+- **[Tiny-ONN](https://github.com/dmf-archive/Tiny-ONN)**: F3EPI will be integrated and applied to the prototype implementation of the Ouroboros Neural Network.
 
 ## ⚠️ Important Notes
 
-- **Memory Consumption**: Enabling `create_graph=True` will increase GPU memory usage. Please adjust `mini_batch_size` according to your hardware conditions.
-- **Theory and Practice**: F3EO is a theoretically-driven experimental optimizer. Its performance on specific tasks may require further hyperparameter tuning and theoretical analysis.
+- **Memory Consumption**: Enabling `create_graph=True` will increase GPU memory usage. Please adjust batch size according to your hardware conditions.
+- **Theory and Practice**: F3EPI is a theoretically-driven experimental optimizer. Its performance on specific tasks may require further hyperparameter tuning and theoretical analysis.
 
 ## References
 
