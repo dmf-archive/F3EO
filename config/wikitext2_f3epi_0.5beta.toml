@@ -20,8 +20,8 @@ tokenizer_path = "./data/wikitext2_tokenizer.json"
 name = "F3EPI"
 lr = 0.0001
 weight_decay = 0.0005
-alpha = 0.5
-gamma = 1.0           # 降低复杂度容限，逼近 MDL
+alpha = 1.0
+gamma = 2.0           # 降低复杂度容限，逼近 MDL
 betas = [0.5, 0.999]  # 更快反应当前感官输入
 
 [train]
