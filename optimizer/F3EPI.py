@@ -38,14 +38,13 @@ class F3EPI(Optimizer):
         super(F3EPI, self).__init__(params, defaults)
         self.last_log_pi = 0.0
         self.last_beta_complexity = 0.0
+        self.pi_step = 0
+        self.exp_avg_log_pi = 0.0
 
-    def step(self, closure=None, loss=None):
-        eval_loss = None
+    def step(self, closure=None, loss=None, logits=None):
         if closure is not None:
             with torch.enable_grad():
-                eval_loss = closure()
-
-        main_loss = loss if loss is not None else eval_loss
+                loss = closure()
 
         params_with_grad = []
         grads = []
@@ -61,22 +60,49 @@ class F3EPI(Optimizer):
                     grads.append(p.grad)
 
         if not grads:
-            return main_loss
+            return loss, None
 
         # 计算用于 meta_grads 的梯度L2范数的平方 (保留计算图)
         grad_norm_sq_for_meta = sum(g.pow(2).sum() for g in grads)
 
-        # 计算用于PI的梯度范数 (脱离计算图，避免内存泄漏和stack问题)
+        # --- PI 计算重构：使用香农熵 ---
         beta_complexity = 0.0
-        if main_loss is not None:
-            grad_norm_for_pi = torch.sqrt(sum(g.detach().pow(2).sum() for g in grads))
+        entropy = None
+        if logits is not None:
+            with torch.no_grad():
+                # 计算香农熵 H(p(y|x))
+                probas = torch.softmax(logits, dim=-1)
+                log_probas = torch.log_softmax(logits, dim=-1)
+                # 确保数值稳定性
+                entropy_per_sample = -torch.sum(probas * log_probas, dim=-1)
+                entropy = entropy_per_sample.mean()
+
+                grad_norm_for_pi = torch.sqrt(sum(g.pow(2).sum() for g in grads))
             alpha = self.param_groups[0]['alpha']
             gamma = self.param_groups[0]['gamma']
-            log_pi = -alpha * main_loss.detach() + alpha * gamma * grad_norm_for_pi
-            beta_complexity = log_pi
-            self.last_log_pi = log_pi.item()
-            self.last_beta_complexity = beta_complexity.item()
+
+            # 新的 log(PI) 计算
+            log_pi = -alpha * entropy + alpha * gamma * grad_norm_for_pi
+
+            # --- PI 信号平滑 (EMA) ---
+            self.pi_step += 1
+            beta1, _ = self.param_groups[0]['betas']
+
+            # 更新 log(PI) 的指数移动平均
+            self.exp_avg_log_pi = self.exp_avg_log_pi * beta1 + log_pi.item() * (1 - beta1)
+
+            # 偏差修正
+            bias_correction_pi = 1 - beta1 ** self.pi_step
+            smoothed_log_pi = self.exp_avg_log_pi / bias_correction_pi
+
+            # 使用平滑后的 PI 信号计算 beta_complexity，并用 tanh 限制范围
+            beta_complexity = smoothed_log_pi
+
+            # 更新用于日志记录的属性
+            self.last_log_pi = smoothed_log_pi
+            self.last_beta_complexity = beta_complexity
         else:
+            # 如果没有提供logits，则无法计算PI，退化为普通优化
             beta_complexity = 0.0
             self.last_log_pi = 0.0
             self.last_beta_complexity = 0.0
@@ -160,4 +186,4 @@ class F3EPI(Optimizer):
                     step_size = group['lr'] / bias_correction1
                     p.addcdiv_(exp_avg, denom, value=-step_size)
 
-        return main_loss
+        return loss, entropy

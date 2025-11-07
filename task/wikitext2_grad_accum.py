@@ -1,3 +1,6 @@
+# NOTE: This implementation is currently deprecated.
+# It lacks a dedicated optimizer variant to properly handle gradient accumulation
+# with the F3EPI's internal state calculations. Do not use until refactored.
 import math
 import time
 from collections.abc import Iterator
@@ -19,17 +22,13 @@ def get_or_train_tokenizer(config: dict[str, Any]) -> Tokenizer:
     vocab_size = config["model"]["vocabulary_size"]
 
     if tokenizer_path.exists():
-        # Load existing tokenizer
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
     else:
-        # Train a new tokenizer
         dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
 
         def get_training_corpus() -> Iterator[list[str]]:
             for i in range(0, len(dataset), 1000):
-                # Correctly access the list of texts from the sliced dictionary
                 batch_texts = dataset[i : i + 1000]['text']
-                # Filter out empty or whitespace-only strings
                 yield [text for text in batch_texts if text.strip()]
 
         tokenizer = Tokenizer(models.BPE())
@@ -50,8 +49,7 @@ def get_or_train_tokenizer(config: dict[str, Any]) -> Tokenizer:
 class ConcatenatedWikitext2Dataset(Dataset):
     """
     A PyTorch Dataset that processes the wikitext-2 dataset by concatenating
-    all articles and then chunking them into fixed-size sequences. This is
-    a highly efficient method for language model pre-training.
+    all articles and then chunking them into fixed-size sequences.
     """
     def __init__(self, concatenated_ids: torch.Tensor, sequence_length: int):
         self.concatenated_ids = concatenated_ids
@@ -73,7 +71,7 @@ class ConcatenatedWikitext2Dataset(Dataset):
         return {"source": source, "target": target, "mask": mask}
 
 
-class Wikitext2Task:
+class Wikitext2_grad_accumTask:
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.sequence_length = config["model"]["sequence_length"]
@@ -84,10 +82,6 @@ class Wikitext2Task:
         self.config["model"]["vocabulary_size"] = self.tokenizer.get_vocab_size()
 
     def _prepare_dataset(self, split: str) -> ConcatenatedWikitext2Dataset:
-        """
-        Loads pre-tokenized and concatenated data if available, otherwise
-        tokenizes, concatenates, and chunks the dataset, then saves it to cache.
-        """
         cache_dir = Path("./data/cache")
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file = cache_dir / f"wikitext2_{split}_ids.pt"
@@ -156,52 +150,56 @@ class Wikitext2Task:
         total_tokens = 0
         last_callback_time = time.time()
 
-        # 消费来自工厂的通用标签
         needs_second_order = optimizer_tags.get("requires_second_order", False) if optimizer_tags else False
         passes_loss_to_step = optimizer_tags.get("passes_loss_to_step", False) if optimizer_tags else False
+        
+        accumulation_steps = self.config.get("optimizer", {}).get("accumulation_steps", 1)
+        
+        optimizer.zero_grad()
 
         for batch_idx, batch in enumerate(train_loader):
             batch = {k: v.to(self.device) for k, v in batch.items()}
 
-            optimizer.zero_grad()
             log_probas = model(batch["source"])
             loss = model.loss(log_probas, batch["target"], batch["mask"])
-
+            
+            normalized_loss = loss / accumulation_steps
+            
             if needs_second_order:
-                loss.backward(create_graph=True)
-                if passes_loss_to_step:
-                    _, entropy = optimizer.step(loss=loss, logits=log_probas)
-                else:
-                    optimizer.step()
+                normalized_loss.backward(create_graph=True)
             else:
-                loss.backward()
-                optimizer.step()
+                normalized_loss.backward()
 
             total_loss += loss.item() * batch["mask"].sum().item()
             total_tokens += batch["mask"].sum().item()
+            
+            if (batch_idx + 1) % accumulation_steps == 0:
+                if passes_loss_to_step:
+                    # 传递标准化后的损失以确保PI计算的尺度正确
+                    loss, entropy = optimizer.step(loss=normalized_loss, logits=log_probas)
+                else:
+                    optimizer.step()
+                optimizer.zero_grad()
 
-            if progress_callback and (batch_idx + 1) % 10 == 0:
-                current_ppl = math.exp(loss.item())
-                grad_norm = monitor.compute_grad_norm(model)
+                if progress_callback and (batch_idx + 1) % (10 * accumulation_steps) == 0:
+                    current_ppl = math.exp(loss.item())
+                    grad_norm = monitor.compute_grad_norm(model)
+                    
+                    log_pi = None
+                    beta_complexity = None
+                    if needs_second_order and hasattr(optimizer, 'last_log_pi'):
+                        log_pi = optimizer.last_log_pi
+                        beta_complexity = optimizer.last_beta_complexity if hasattr(optimizer, 'last_beta_complexity') else None
 
-                # 获取需要记录 log(PI) 的优化器值
-                log_pi = None
-                beta_complexity = None
-                if needs_second_order and hasattr(optimizer, 'last_log_pi'):
-                    log_pi = optimizer.last_log_pi
-                    beta_complexity = optimizer.last_beta_complexity if hasattr(optimizer, 'last_beta_complexity') else None
+                    current_time = time.time()
+                    time_elapsed = current_time - last_callback_time
+                    steps_processed = 10 * accumulation_steps
+                    steps_per_sec = steps_processed / time_elapsed if time_elapsed > 0 else 0.0
+                    last_callback_time = current_time
 
-                current_time = time.time()
-                time_elapsed = current_time - last_callback_time
-                steps_processed = 10
-                steps_per_sec = steps_processed / time_elapsed if time_elapsed > 0 else 0.0
-                last_callback_time = current_time
-
-                entropy_val = entropy.item() if entropy is not None else None
-                progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_ppl, grad_norm, steps_per_sec, log_pi, beta_complexity, entropy_val)
-
-                # 更新监控器的step级别指标，包含PI值
-                monitor.end_step(model, loss.item(), optimizer.param_groups[0]['lr'], log_pi, beta_complexity, entropy_val)
+                    entropy_val = entropy.item() if entropy is not None else None
+                    progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_ppl, grad_norm, steps_per_sec, log_pi, beta_complexity, entropy_val)
+                    monitor.end_step(model, loss.item(), optimizer.param_groups[0]['lr'], log_pi, beta_complexity, entropy_val)
 
         avg_loss = total_loss / total_tokens if total_tokens > 0 else 0
         perplexity = math.exp(avg_loss) if avg_loss > 0 else float('inf')

@@ -134,6 +134,7 @@ def train(config: dict[str, Any], task_class, config_name: str) -> None:
             "learning_rate": [m["learning_rate"] for m in monitor.epoch_metrics_history],
             "epoch_time": [m["epoch_time"] for m in monitor.epoch_metrics_history],
             "log_pi": [m.get("log_pi") for m in monitor.epoch_metrics_history],
+            "entropy": [m.get("entropy") for m in monitor.epoch_metrics_history],
         }
     report_gen = ReportGenerator(config, output_dir, preload_history=preload_history)
 
@@ -184,10 +185,10 @@ def train(config: dict[str, Any], task_class, config_name: str) -> None:
 
             monitor.start_epoch(epoch, len(train_loader))
             # Step 级进度条和实时监控
-            def step_progress_callback(step, total_steps, loss, metric, grad_norm=None, items_per_sec=None, log_pi=None, beta_complexity=None):
+            def step_progress_callback(step, total_steps, loss, metric, grad_norm=None, items_per_sec=None, log_pi=None, beta_complexity=None, entropy=None):
                 if step % 10 == 0:  # 每10步更新一次
                     base_msg = f"[dim]Epoch {current_epoch}/{epochs} | Step {step}/{total_steps} | Loss: {loss:.4f}"
-                    if config['experiment']['task'] == 'wikitext2':
+                    if 'wikitext2' in config['experiment']['task']:
                         base_msg += f" | PPL: {metric:.2f}"
                     else:
                         base_msg += f" | Acc: {metric:.2f}%"
@@ -200,6 +201,8 @@ def train(config: dict[str, Any], task_class, config_name: str) -> None:
                         base_msg += f" | Log(PI): {log_pi:.3f}"
                     if beta_complexity is not None:
                         base_msg += f" | β: {beta_complexity:.3f}"
+                    if entropy is not None:
+                        base_msg += f" | H: {entropy:.3f}"
 
                     console.print(base_msg + "[/dim]")
 
@@ -218,7 +221,8 @@ def train(config: dict[str, Any], task_class, config_name: str) -> None:
                 epoch_log_pi = optimizer.last_log_pi
 
             # 记录指标到报告生成器
-            report_gen.log_epoch(epoch + 1, train_results, valid_results, current_lr, epoch_time, epoch_log_pi)
+            epoch_entropy = monitor.epoch_metrics_history[-1].get("entropy") if monitor.epoch_metrics_history else None
+            report_gen.log_epoch(epoch + 1, train_results, valid_results, current_lr, epoch_time, epoch_log_pi, epoch_entropy)
 
             # 更新 TrainingMonitor 中的 epoch 级别指标
             monitor_output = monitor.end_epoch(train_results, valid_results, current_lr)
@@ -232,7 +236,7 @@ def train(config: dict[str, Any], task_class, config_name: str) -> None:
             table = Table(title=f"Epoch {epoch+1} Results")
             table.add_column("Split", style="cyan")
             table.add_column("Loss", justify="right", style="magenta")
-            if config['experiment']['task'] == 'wikitext2':
+            if 'wikitext2' in config['experiment']['task']:
                 table.add_column("Perplexity", justify="right", style="green")
                 table.add_row("Train", f"{train_results['loss']:.4f}", f"{train_results['perplexity']:.2f}")
                 table.add_row("Valid", f"{valid_results['loss']:.4f}", f"{valid_results['perplexity']:.2f}")

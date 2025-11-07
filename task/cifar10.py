@@ -135,7 +135,7 @@ class Cifar10Task:
             if needs_second_order:
                 loss.backward(create_graph=True)
                 if passes_loss_to_step:
-                    optimizer.step(loss=loss)
+                    _, entropy = optimizer.step(loss=loss, logits=outputs)
                 else:
                     optimizer.step()
             else:
@@ -161,7 +161,18 @@ class Cifar10Task:
                 # 获取grad norm (统一从 monitor 获取)
                 grad_norm = monitor.compute_grad_norm(model)
 
-                progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_acc, grad_norm, steps_per_sec)
+                # 获取需要记录 log(PI) 的优化器值
+                log_pi = None
+                beta_complexity = None
+                if needs_second_order and hasattr(optimizer, 'last_log_pi'):
+                    log_pi = optimizer.last_log_pi
+                    beta_complexity = optimizer.last_beta_complexity if hasattr(optimizer, 'last_beta_complexity') else None
+
+                entropy_val = entropy.item() if entropy is not None else None
+                progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_acc, grad_norm, steps_per_sec, log_pi, beta_complexity, entropy_val)
+                
+                monitor.end_step(model, loss.item(), optimizer.param_groups[0]['lr'], log_pi, beta_complexity, entropy_val)
+
                 last_callback_time = current_time
 
         avg_loss = total_loss / len(train_loader)

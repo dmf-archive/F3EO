@@ -16,16 +16,16 @@ n_holes = 1        # cutout参数
 cutout_length = 16 # cutout长度
 
 [optimizer]
-name = "AdamW"      # 使用AdamW优化器
+name = "AdaFisher"
 lr = 0.001          # 对齐AdaFisher的学习率
-weight_decay = 5e-4
-
-[scheduler]
-name = "cosine" # 使用CosineAnnealingLR
-T_max = 200     # 对齐AdaFisher
+weight_decay = 5e-4 # 对齐AdaFisher
+beta = 0.9          # 一阶动量，论文默认值
+gamma = 0.8         # AdaFisher 特有参数，来自论文
+Lambda = 1e-3       # AdaFisher 特有参数，来自论文
+TCov = 100          # AdaFisher 特有参数，论文默认值
 
 [train]
-epochs = 50 # 对齐F3EPI实验
+epochs = 50
 log_every = 10
 ckpt_every = 50
 

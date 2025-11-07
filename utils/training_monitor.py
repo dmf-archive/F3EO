@@ -28,6 +28,7 @@ class TrainingMetrics:
     timestamp: float = 0.0
     log_pi: float | None = None
     beta_complexity: float | None = None
+    entropy: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -97,7 +98,7 @@ class TrainingMonitor:
         """记录步骤开始时间"""
         self.step_start_time = time.time()
 
-    def end_step(self, model: torch.nn.Module, loss: float, lr: float, log_pi: float | None = None, beta_complexity: float | None = None) -> TrainingMetrics:
+    def end_step(self, model: torch.nn.Module, loss: float, lr: float, log_pi: float | None = None, beta_complexity: float | None = None, entropy: float | None = None) -> TrainingMetrics:
         """记录步骤结束并计算所有指标"""
         step_time = time.time() - self.step_start_time
         iter_per_sec = 1.0 / step_time if step_time > 0 else 0.0
@@ -122,7 +123,8 @@ class TrainingMonitor:
             cpu_memory_percent=cpu_memory,
             timestamp=time.time(),
             log_pi=log_pi,
-            beta_complexity=beta_complexity
+            beta_complexity=beta_complexity,
+            entropy=entropy
         )
 
         self.metrics_history.append(metrics)
@@ -164,6 +166,7 @@ class TrainingMonitor:
             "train_metric": train_results.get("accuracy", train_results.get("perplexity")),
             "valid_metric": valid_results.get("accuracy", valid_results.get("perplexity")),
             "log_pi": self.metrics_history[-1].log_pi if self.metrics_history and self.metrics_history[-1].log_pi is not None else None,
+            "entropy": self.metrics_history[-1].entropy if self.metrics_history and self.metrics_history[-1].entropy is not None else None,
         }
         self.epoch_metrics_history.append(epoch_summary)
 
