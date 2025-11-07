@@ -1,0 +1,33 @@
+[experiment]
+task = "wikitext2"
+seed = 42
+device = "cuda"
+
+[model]
+arch = "nano_gpt"
+vocabulary_size = 40479
+embedding_size = 768
+sequence_length = 256
+num_heads = 12
+num_layers = 4
+
+[data]
+batch_size = 8
+num_workers = 4
+tokenizer_path = "./data/wikitext2_tokenizer.json"
+
+[optimizer]
+name = "F3EWD"
+lr = 0.0001
+weight_decay = 0.01
+betas = [0.9, 0.999]
+gamma = 0.5
+
+[train]
+epochs = 30
+log_every = 10
+ckpt_every = 2
+
+[early_stop]
+patience = 10
+threshold = 1.0

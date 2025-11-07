@@ -183,21 +183,23 @@ class Wikitext2Task:
             if progress_callback and (batch_idx + 1) % 10 == 0:
                 current_ppl = math.exp(loss.item())
                 grad_norm = monitor.compute_grad_norm(model)
-
-                # 获取需要记录 log(PI) 的优化器值
-                log_pi = None
-                beta_complexity = None
-                if needs_second_order and hasattr(optimizer, 'last_log_pi'):
-                    log_pi = optimizer.last_log_pi
-                    beta_complexity = optimizer.last_beta_complexity if hasattr(optimizer, 'last_beta_complexity') else None
-
                 current_time = time.time()
                 time_elapsed = current_time - last_callback_time
                 steps_processed = 10
                 steps_per_sec = steps_processed / time_elapsed if time_elapsed > 0 else 0.0
                 last_callback_time = current_time
 
-                entropy_val = entropy.item() if entropy is not None else None
+                # 获取需要记录 log(PI) 和 entropy 的优化器值
+                log_pi = None
+                beta_complexity = None
+                entropy_val = None
+                if needs_second_order:
+                    if hasattr(optimizer, 'last_log_pi'):
+                        log_pi = optimizer.last_log_pi
+                        beta_complexity = optimizer.last_beta_complexity if hasattr(optimizer, 'last_beta_complexity') else None
+                    # entropy 变量仅在 needs_second_order 块内定义
+                    if 'entropy' in locals():
+                         entropy_val = entropy.item() if entropy is not None else None
                 progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_ppl, grad_norm, steps_per_sec, log_pi, beta_complexity, entropy_val)
 
                 # 更新监控器的step级别指标，包含PI值

@@ -168,7 +168,18 @@ class Cifar10Task:
                     log_pi = optimizer.last_log_pi
                     beta_complexity = optimizer.last_beta_complexity if hasattr(optimizer, 'last_beta_complexity') else None
 
-                entropy_val = entropy.item() if entropy is not None else None
+                # 获取需要记录 log(PI) 和 entropy 的优化器值
+                log_pi = None
+                beta_complexity = None
+                entropy_val = None
+                if needs_second_order:
+                    if hasattr(optimizer, 'last_log_pi'):
+                        log_pi = optimizer.last_log_pi
+                        beta_complexity = optimizer.last_beta_complexity if hasattr(optimizer, 'last_beta_complexity') else None
+                    # entropy 变量仅在 needs_second_order 块内定义
+                    if 'entropy' in locals():
+                         entropy_val = entropy.item() if entropy is not None else None
+
                 progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_acc, grad_norm, steps_per_sec, log_pi, beta_complexity, entropy_val)
                 
                 monitor.end_step(model, loss.item(), optimizer.param_groups[0]['lr'], log_pi, beta_complexity, entropy_val)

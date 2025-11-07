@@ -4,3 +4,6 @@
 [submodule "ref/continual-learning"]
 	path = ref/continual-learning
 	url = https://github.com/GMvandeVen/continual-learning.git
+[submodule "ref/Omnigrok"]
+	path = ref/Omnigrok
+	url = https://github.com/KindXiaoming/Omnigrok.git

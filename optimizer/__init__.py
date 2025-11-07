@@ -33,6 +33,17 @@ def get_optimizer(name: str, params, **config):
         opt = F3EPI(params, **config)
         tags["requires_second_order"] = True
         tags["passes_loss_to_step"] = True
+    
+    elif name == "AdamW_PI":
+        from .adamw_pi import AdamW_PI
+        opt = AdamW_PI(params, **config)
+        tags["passes_loss_to_step"] = True
+    
+    elif name == "F3EWD":
+        from .F3EWD import F3EWD
+        opt = F3EWD(params, **config)
+        tags["requires_second_order"] = True
+        tags["passes_loss_to_step"] = True
 
     else:
         raise ValueError(f"Unknown optimizer: {name}")
