@@ -75,7 +75,7 @@ def create_optimizer_scheduler(model, config, train_loader):
     return optimizer, scheduler, tags
 
 
-def train(config: dict[str, Any], task_class) -> None:
+def train(config: dict[str, Any], task_class, config_name: str) -> None:
     device = torch.device(config["experiment"]["device"])
     seed = config["experiment"]["seed"]
     torch.manual_seed(seed)
@@ -91,8 +91,9 @@ def train(config: dict[str, Any], task_class) -> None:
 
     epochs = config["train"]["epochs"]
 
-    # 设置输出目录
-    output_dir = Path("outputs") / config["experiment"]["task"] / config["optimizer"]["name"]
+    # 使用配置文件名作为实验名
+    experiment_name = config_name
+    output_dir = Path("outputs") / config["experiment"]["task"] / experiment_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 初始化训练监控器（支持断点续训）
@@ -277,7 +278,8 @@ def main():
     task_name = config["experiment"]["task"]
 
     task_class = get_task_module(task_name)
-    train(config, task_class)
+    config_name = config_path.stem  # 从文件名获取实验名
+    train(config, task_class, config_name)
 
 
 if __name__ == "__main__":
