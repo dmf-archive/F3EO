@@ -21,6 +21,7 @@ lr = 0.001
 weight_decay = 5e-4 # 基础权重衰减 (仅作为 PI-AWD 的基准值)
 betas = [0.9, 0.999]
 gamma = 0.5 # PI 信号中复杂度 vs 熵的权衡，同时驱动 PI 放大器
+alpha = 1.0 # 熵项的权重系数
 
 [train]
 epochs = 50

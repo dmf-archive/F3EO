@@ -12,8 +12,9 @@ from rich.table import Table
 
 class _PICalculator:
     """A helper class to calculate Predictive Integrity (PI)."""
-    def __init__(self, gamma: float, ema_beta: float | None = None, eps: float = 1e-8):
+    def __init__(self, gamma: float, alpha: float, ema_beta: float | None = None, eps: float = 1e-8):
         self.gamma = gamma
+        self.alpha = alpha
         self.ema_beta = ema_beta
         self.eps = eps
         self.exp_avg_pi = 0.0
@@ -21,7 +22,7 @@ class _PICalculator:
 
     def calculate_pi(self, entropy: torch.Tensor, grad_norm: float) -> tuple[float, float]:
         """Calculates the instantaneous and optionally smoothed PI."""
-        instant_pi = torch.exp(-(entropy + self.gamma * grad_norm)).item()
+        instant_pi = torch.exp(-(self.alpha * entropy + self.gamma * grad_norm)).item()
 
         if self.ema_beta is not None:
             self.pi_step += 1
@@ -68,7 +69,8 @@ class TrainingMonitor:
         if pi_config and "gamma" in pi_config:
             self.pi_calculator = _PICalculator(
                 gamma=pi_config.get("gamma", 0.1),
-                ema_beta=pi_config.get("ema_beta")
+                ema_beta=pi_config.get("ema_beta"),
+                alpha=pi_config.get("alpha", 1.0)
             )
         else:
             self.pi_calculator = None
