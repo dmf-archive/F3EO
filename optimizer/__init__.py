@@ -7,7 +7,7 @@ def get_optimizer(name: str, params, **config):
     """
     tags = {
         "requires_second_order": False,
-        "passes_loss_to_step": False,
+        "accepts_pi_signal": False,
     }
 
     if name == "AdamW":
@@ -27,23 +27,23 @@ def get_optimizer(name: str, params, **config):
         opt = AdaFisher(model, **config)
         tags["requires_second_order"] = True
 
-    # F3E 系列：全部需要二阶梯度，部分需要传 loss
+    # F3E 系列：全部需要二阶梯度
     elif name == "F3EPI":
         from .F3EPI import F3EPI
         opt = F3EPI(params, **config)
         tags["requires_second_order"] = True
-        tags["passes_loss_to_step"] = True
-    
+        tags["accepts_pi_signal"] = True # F3EPI is now PI-aware
+
     elif name == "AdamW_PI":
         from .adamw_pi import AdamW_PI
         opt = AdamW_PI(params, **config)
-        tags["passes_loss_to_step"] = True
-    
+        tags["accepts_pi_signal"] = True
+
     elif name == "F3EWD":
         from .F3EWD import F3EWD
         opt = F3EWD(params, **config)
         tags["requires_second_order"] = True
-        tags["passes_loss_to_step"] = True
+        tags["accepts_pi_signal"] = True
 
     else:
         raise ValueError(f"Unknown optimizer: {name}")

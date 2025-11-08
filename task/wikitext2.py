@@ -64,12 +64,12 @@ class ConcatenatedWikitext2Dataset(Dataset):
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         start_idx = idx * self.sequence_length
         seq = self.concatenated_ids[start_idx : start_idx + self.sequence_length + 1]
-        
+
         source = seq[:-1]
         target = seq[1:]
-        
+
         mask = torch.ones(self.sequence_length, dtype=torch.float)
-        
+
         return {"source": source, "target": target, "mask": mask}
 
 
@@ -98,7 +98,7 @@ class Wikitext2Task:
         else:
             print(f"No cache found. Tokenizing and concatenating '{split}' split...")
             raw_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split=split)
-            
+
             all_token_ids = []
             eos_token_id = self.tokenizer.token_to_id("<|endoftext|>")
             if eos_token_id is None:
@@ -108,15 +108,15 @@ class Wikitext2Task:
                 text = item['text']
                 if not text or text.isspace():
                     continue
-                
+
                 tokenized_output = self.tokenizer.encode(text)
                 all_token_ids.extend(tokenized_output.ids)
                 all_token_ids.append(eos_token_id)
-                
+
             concatenated_ids = torch.tensor(all_token_ids, dtype=torch.long)
             print(f"Saving concatenated IDs to cache: {cache_file}")
             torch.save(concatenated_ids, cache_file)
-        
+
         return ConcatenatedWikitext2Dataset(concatenated_ids, self.sequence_length)
 
     def get_dataloaders(self) -> tuple[DataLoader, DataLoader]:
@@ -156,54 +156,43 @@ class Wikitext2Task:
         total_tokens = 0
         last_callback_time = time.time()
 
-        # 消费来自工厂的通用标签
+        accepts_pi_signal = optimizer_tags.get("accepts_pi_signal", False) if optimizer_tags else False
         needs_second_order = optimizer_tags.get("requires_second_order", False) if optimizer_tags else False
-        passes_loss_to_step = optimizer_tags.get("passes_loss_to_step", False) if optimizer_tags else False
 
         for batch_idx, batch in enumerate(train_loader):
             batch = {k: v.to(self.device) for k, v in batch.items()}
-
             optimizer.zero_grad()
+
             log_probas = model(batch["source"])
             loss = model.loss(log_probas, batch["target"], batch["mask"])
 
-            if needs_second_order:
-                loss.backward(create_graph=True)
-                if passes_loss_to_step:
-                    _, entropy = optimizer.step(loss=loss, logits=log_probas)
-                else:
-                    optimizer.step()
-            else:
-                loss.backward()
-                optimizer.step()
+            loss.backward(create_graph=needs_second_order)
+
+            # --- PI Calculation and Optimizer Step ---
+            metrics = monitor.end_step(model, loss.item(), optimizer.param_groups[0]['lr'], log_probas)
+
+            step_args = {}
+            if accepts_pi_signal:
+                step_args['effective_gamma'] = metrics.effective_gamma
+
+            optimizer.step(**step_args)
+            # --- End of PI Calculation ---
 
             total_loss += loss.item() * batch["mask"].sum().item()
             total_tokens += batch["mask"].sum().item()
 
             if progress_callback and (batch_idx + 1) % 10 == 0:
                 current_ppl = math.exp(loss.item())
-                grad_norm = monitor.compute_grad_norm(model)
                 current_time = time.time()
                 time_elapsed = current_time - last_callback_time
                 steps_processed = 10
                 steps_per_sec = steps_processed / time_elapsed if time_elapsed > 0 else 0.0
                 last_callback_time = current_time
 
-                # 获取需要记录 log(PI) 和 entropy 的优化器值
-                log_pi = None
-                beta_complexity = None
-                entropy_val = None
-                if needs_second_order:
-                    if hasattr(optimizer, 'last_log_pi'):
-                        log_pi = optimizer.last_log_pi
-                        beta_complexity = optimizer.last_beta_complexity if hasattr(optimizer, 'last_beta_complexity') else None
-                    # entropy 变量仅在 needs_second_order 块内定义
-                    if 'entropy' in locals():
-                         entropy_val = entropy.item() if entropy is not None else None
-                progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_ppl, grad_norm, steps_per_sec, log_pi, beta_complexity, entropy_val)
-
-                # 更新监控器的step级别指标，包含PI值
-                monitor.end_step(model, loss.item(), optimizer.param_groups[0]['lr'], log_pi, beta_complexity, entropy_val)
+                progress_callback(
+                    monitor.current_epoch, batch_idx + 1, len(train_loader), loss.item(), current_ppl,
+                    metrics.grad_norm, steps_per_sec, metrics.pi, metrics.effective_gamma, metrics.entropy
+                )
 
         avg_loss = total_loss / total_tokens if total_tokens > 0 else 0
         perplexity = math.exp(avg_loss) if avg_loss > 0 else float('inf')

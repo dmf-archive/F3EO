@@ -133,7 +133,8 @@ def train(config: dict[str, Any], task_class, config_name: str) -> None:
             "valid_metric": [m["valid_metric"] for m in monitor.epoch_metrics_history],
             "learning_rate": [m["learning_rate"] for m in monitor.epoch_metrics_history],
             "epoch_time": [m["epoch_time"] for m in monitor.epoch_metrics_history],
-            "log_pi": [m.get("log_pi") for m in monitor.epoch_metrics_history],
+            "pi": [m.get("pi") for m in monitor.epoch_metrics_history],
+            "effective_gamma": [m.get("effective_gamma") for m in monitor.epoch_metrics_history],
             "entropy": [m.get("entropy") for m in monitor.epoch_metrics_history],
         }
     report_gen = ReportGenerator(config, output_dir, preload_history=preload_history)
@@ -149,8 +150,6 @@ def train(config: dict[str, Any], task_class, config_name: str) -> None:
         border_style="cyan"
     ))
 
-    best_metric = float('inf') if config['experiment']['task'] == 'wikitext2' else 0.0
-    best_epoch = 0
 
     # 创建实时表格用于 step 级监控
 
@@ -185,9 +184,9 @@ def train(config: dict[str, Any], task_class, config_name: str) -> None:
 
             monitor.start_epoch(epoch, len(train_loader))
             # Step 级进度条和实时监控
-            def step_progress_callback(step, total_steps, loss, metric, grad_norm=None, items_per_sec=None, log_pi=None, beta_complexity=None, entropy=None):
+            def step_progress_callback(epoch, step, total_steps, loss, metric, grad_norm=None, items_per_sec=None, pi=None, effective_gamma=None, entropy=None):
                 if step % 10 == 0:  # 每10步更新一次
-                    base_msg = f"[dim]Epoch {current_epoch}/{epochs} | Step {step}/{total_steps} | Loss: {loss:.4f}"
+                    base_msg = f"[dim]Epoch {epoch+1}/{epochs} | Step {step}/{total_steps} | Loss: {loss:.4f}"
                     if 'wikitext2' in config['experiment']['task']:
                         base_msg += f" | PPL: {metric:.2f}"
                     else:
@@ -197,10 +196,10 @@ def train(config: dict[str, Any], task_class, config_name: str) -> None:
                         base_msg += f" | Grad: {grad_norm:.4f}"
                     if items_per_sec is not None:
                         base_msg += f" | {items_per_sec:.1f}it/s"
-                    if log_pi is not None:
-                        base_msg += f" | Log(PI): {log_pi:.3f}"
-                    if beta_complexity is not None:
-                        base_msg += f" | β: {beta_complexity:.3f}"
+                    if pi is not None:
+                        base_msg += f" | PI: {pi:.3f}"
+                    if effective_gamma is not None:
+                        base_msg += f" | Eff. γ: {effective_gamma:.3f}"
                     if entropy is not None:
                         base_msg += f" | H: {entropy:.3f}"
 
@@ -215,17 +214,20 @@ def train(config: dict[str, Any], task_class, config_name: str) -> None:
             # 记录学习率
             current_lr = optimizer.param_groups[0]['lr']
 
-            # 获取需要记录 log(PI) 的优化器值用于 epoch 报告
-            epoch_log_pi = None
-            if optimizer_tags.get("requires_second_order", False) and hasattr(optimizer, 'last_log_pi'):
-                epoch_log_pi = optimizer.last_log_pi
+            # 从 monitor 的历史记录中获取最新的 PI 相关指标
+            last_metrics = monitor.metrics_history[-1] if monitor.metrics_history else None
+            epoch_pi = last_metrics.pi if last_metrics else None
+            epoch_effective_gamma = last_metrics.effective_gamma if last_metrics else None
+            epoch_entropy = last_metrics.entropy if last_metrics else None
 
             # 记录指标到报告生成器
-            epoch_entropy = monitor.epoch_metrics_history[-1].get("entropy") if monitor.epoch_metrics_history else None
-            report_gen.log_epoch(epoch + 1, train_results, valid_results, current_lr, epoch_time, epoch_log_pi, epoch_entropy)
+            report_gen.log_epoch(
+                epoch + 1, train_results, valid_results, current_lr, epoch_time,
+                epoch_pi, epoch_effective_gamma, epoch_entropy
+            )
 
             # 更新 TrainingMonitor 中的 epoch 级别指标
-            monitor_output = monitor.end_epoch(train_results, valid_results, current_lr)
+            monitor.end_epoch(train_results, valid_results, current_lr)
 
             if scheduler:
                 scheduler.step()

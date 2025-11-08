@@ -30,7 +30,7 @@ class F3EWD(Optimizer):
                         weight_decay=weight_decay, amsgrad=amsgrad, maximize=maximize,
                         orthogonalize=orthogonalize, meta_grad_clip_norm=meta_grad_clip_norm,
                         gamma=gamma)
-        
+
         self.single_gpu = single_gpu
         super(F3EWD, self).__init__(params, defaults)
         self.last_log_pi = 0.0
@@ -38,7 +38,15 @@ class F3EWD(Optimizer):
         self.pi_step = 0
         self.exp_avg_log_pi = 0.0
 
-    def step(self, closure=None, loss=None, logits=None):
+    def step(self, closure=None, effective_gamma=None):
+        """Performs a single optimization step.
+        
+        Args:
+            closure: A closure that reevaluates the model and returns the loss.
+            effective_gamma: Optional external PI signal. If provided, it overrides
+                              the internal gamma calculation and is used directly
+                              for the exponential penalty.
+        """
         if closure is not None:
             with torch.enable_grad():
                 loss = closure()
@@ -49,60 +57,43 @@ class F3EWD(Optimizer):
             for p in group['params']:
                 if p.grad is not None:
                     if p.grad.is_sparse:
-                        raise RuntimeError('F3EO-PIWD does not support sparse gradients.')
+                        raise RuntimeError('F3EWD does not support sparse gradients.')
                     if p.grad.grad_fn is None and p.grad.requires_grad == False:
                         raise RuntimeError('Gradient tensor does not have grad_fn. When calling loss.backward(), make sure the option create_graph is set to True.')
                     params_with_grad.append(p)
                     grads.append(p.grad)
 
         if not grads:
-            return loss, None
+            return loss
 
         # Compute grad norm once to avoid O(N) redundancy
         grad_norm_sq = sum(g.pow(2).sum() for g in grads)
-        
-        adaptive_weight_decay = self.param_groups[0]['weight_decay']
-        entropy = None
-        beta_multiplier = 1.0
-        awd_multiplier = 1.0
-        if logits is not None:
-            with torch.no_grad():
-                probas = torch.softmax(logits, dim=-1)
-                log_probas = torch.log_softmax(logits, dim=-1)
-                entropy_per_sample = -torch.sum(probas * log_probas, dim=-1)
-                entropy = entropy_per_sample.mean()
-                grad_norm_for_pi = torch.sqrt(grad_norm_sq)
 
-            # alpha is now hardcoded to 1, gamma is the sole hyperparameter
-            gamma = self.param_groups[0]['gamma']
-            log_pi = -entropy + gamma * grad_norm_for_pi
+        # --- PI-based modulation ---
+        # If effective_gamma is provided externally, use it directly.
+        # Otherwise, fall back to the base gamma from config (no modulation).
+        multiplier = 1.0
+        if effective_gamma is not None:
+            multiplier = torch.exp(effective_gamma)
 
-            self.pi_step += 1
-            beta1, _ = self.param_groups[0]['betas']
-            self.exp_avg_log_pi = self.exp_avg_log_pi * beta1 + log_pi.item() * (1 - beta1)
-            bias_correction_pi = 1 - beta1 ** self.pi_step
-            smoothed_log_pi = self.exp_avg_log_pi / bias_correction_pi
-            
-            # pi_norm is exp(log(PI)), its range is (0, 1]
-            # Clamping log_pi to prevent exp from creating large values if log_pi > 0
-            pi_norm = torch.exp(torch.clamp(torch.tensor(smoothed_log_pi), max=0.0))
+        adaptive_weight_decay = self.param_groups[0]['weight_decay'] * multiplier
+        beta_multiplier = multiplier
+        # --- End of PI-based modulation ---
 
-            # AWD multiplier: Monotonic exponential, driven by gamma
-            awd_multiplier = torch.exp(gamma * pi_norm)
+        meta_grads = torch.autograd.grad(grad_norm_sq, params_with_grad, retain_graph=False, allow_unused=True)
 
-            # Beta multiplier: U-shaped cosh, centered at 0.5, driven by gamma
-            beta_multiplier = torch.cosh(gamma * (pi_norm - 0.5))
-
-            # Note: weight_decay from config is only a base value.
-            # The effective weight decay is fully determined by the PI signal.
-            base_wd = self.param_groups[0]['weight_decay']
-            adaptive_weight_decay = base_wd * awd_multiplier
-            
-            self.last_log_pi = smoothed_log_pi
-            self.last_adaptive_wd = adaptive_weight_decay.item() if isinstance(adaptive_weight_decay, torch.Tensor) else adaptive_weight_decay
-        else:
-            self.last_log_pi = 0.0
-            self.last_adaptive_wd = adaptive_weight_decay
+        clip_value = self.param_groups[0]['meta_grad_clip_norm']
+        if clip_value > 0:
+            total_norm = torch.sqrt(sum(torch.norm(g.detach(), 2).pow(2) for g in meta_grads if g is not None))
+            clip_coef = clip_value / (total_norm + 1e-6)
+            if clip_coef < 1:
+                clipped_meta_grads = []
+                for g in meta_grads:
+                    if g is not None:
+                        clipped_meta_grads.append(g.mul(clip_coef))
+                    else:
+                        clipped_meta_grads.append(None)
+                meta_grads = tuple(clipped_meta_grads)
 
         meta_grads = torch.autograd.grad(grad_norm_sq, params_with_grad, retain_graph=False, allow_unused=True)
 
@@ -140,7 +131,7 @@ class F3EWD(Optimizer):
                             if first_grad_dot > 0:
                                 projection_scale = torch.dot(meta_grad_flat, first_grad_flat) / first_grad_dot
                                 meta_grad = meta_grad - projection_scale * first_grad
-                        
+
                         effective_grad = first_grad - beta_multiplier * meta_grad
 
                     state = self.state[p]
@@ -176,4 +167,4 @@ class F3EWD(Optimizer):
                     step_size = group['lr'] / bias_correction1
                     p.addcdiv_(exp_avg, denom, value=-step_size)
 
-        return loss, entropy
+        return loss

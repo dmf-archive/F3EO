@@ -62,12 +62,12 @@ class ConcatenatedWikitext2Dataset(Dataset):
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         start_idx = idx * self.sequence_length
         seq = self.concatenated_ids[start_idx : start_idx + self.sequence_length + 1]
-        
+
         source = seq[:-1]
         target = seq[1:]
-        
+
         mask = torch.ones(self.sequence_length, dtype=torch.float)
-        
+
         return {"source": source, "target": target, "mask": mask}
 
 
@@ -92,7 +92,7 @@ class Wikitext2_grad_accumTask:
         else:
             print(f"No cache found. Tokenizing and concatenating '{split}' split...")
             raw_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split=split)
-            
+
             all_token_ids = []
             eos_token_id = self.tokenizer.token_to_id("<|endoftext|>")
             if eos_token_id is None:
@@ -102,15 +102,15 @@ class Wikitext2_grad_accumTask:
                 text = item['text']
                 if not text or text.isspace():
                     continue
-                
+
                 tokenized_output = self.tokenizer.encode(text)
                 all_token_ids.extend(tokenized_output.ids)
                 all_token_ids.append(eos_token_id)
-                
+
             concatenated_ids = torch.tensor(all_token_ids, dtype=torch.long)
             print(f"Saving concatenated IDs to cache: {cache_file}")
             torch.save(concatenated_ids, cache_file)
-        
+
         return ConcatenatedWikitext2Dataset(concatenated_ids, self.sequence_length)
 
     def get_dataloaders(self) -> tuple[DataLoader, DataLoader]:
@@ -152,9 +152,9 @@ class Wikitext2_grad_accumTask:
 
         needs_second_order = optimizer_tags.get("requires_second_order", False) if optimizer_tags else False
         passes_loss_to_step = optimizer_tags.get("passes_loss_to_step", False) if optimizer_tags else False
-        
+
         accumulation_steps = self.config.get("optimizer", {}).get("accumulation_steps", 1)
-        
+
         optimizer.zero_grad()
 
         for batch_idx, batch in enumerate(train_loader):
@@ -162,9 +162,9 @@ class Wikitext2_grad_accumTask:
 
             log_probas = model(batch["source"])
             loss = model.loss(log_probas, batch["target"], batch["mask"])
-            
+
             normalized_loss = loss / accumulation_steps
-            
+
             if needs_second_order:
                 normalized_loss.backward(create_graph=True)
             else:
@@ -172,7 +172,7 @@ class Wikitext2_grad_accumTask:
 
             total_loss += loss.item() * batch["mask"].sum().item()
             total_tokens += batch["mask"].sum().item()
-            
+
             if (batch_idx + 1) % accumulation_steps == 0:
                 if passes_loss_to_step:
                     # 传递标准化后的损失以确保PI计算的尺度正确
@@ -184,7 +184,7 @@ class Wikitext2_grad_accumTask:
                 if progress_callback and (batch_idx + 1) % (10 * accumulation_steps) == 0:
                     current_ppl = math.exp(loss.item())
                     grad_norm = monitor.compute_grad_norm(model)
-                    
+
                     log_pi = None
                     beta_complexity = None
                     if needs_second_order and hasattr(optimizer, 'last_log_pi'):

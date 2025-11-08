@@ -1,3 +1,4 @@
+import random
 import time
 from typing import Any
 
@@ -32,8 +33,8 @@ class Cutout:
         mask = np.ones((h, w), np.float32)
 
         for _n in range(self.n_holes):
-            y = np.random.randint(h)
-            x = np.random.randint(w)
+            y = random.randint(0, h-1)
+            x = random.randint(0, w-1)
 
             y1 = np.clip(y - self.length // 2, 0, h)
             y2 = np.clip(y + self.length // 2, 0, h)
@@ -117,74 +118,48 @@ class Cifar10Task:
         total_loss = 0.0
         correct = 0
         total = 0
-        total_items = 0
-        epoch_start_time = time.time()
-        last_callback_time = epoch_start_time
+        last_callback_time = time.time()
 
-        # 消费来自工厂的通用标签
+        accepts_pi_signal = optimizer_tags.get("accepts_pi_signal", False) if optimizer_tags else False
         needs_second_order = optimizer_tags.get("requires_second_order", False) if optimizer_tags else False
-        passes_loss_to_step = optimizer_tags.get("passes_loss_to_step", False) if optimizer_tags else False
 
         for batch_idx, (inputs, targets) in enumerate(train_loader):
             inputs, targets = inputs.to(self.device), targets.to(self.device)
-
             optimizer.zero_grad()
+
             outputs = model(inputs)
             loss = criterion(outputs, targets)
 
-            if needs_second_order:
-                loss.backward(create_graph=True)
-                if passes_loss_to_step:
-                    _, entropy = optimizer.step(loss=loss, logits=outputs)
-                else:
-                    optimizer.step()
-            else:
-                loss.backward()
-                optimizer.step()
+            loss.backward(create_graph=needs_second_order)
+
+            # --- PI Calculation and Optimizer Step ---
+            # For CIFAR-10, we pass `outputs` (logits) to the monitor
+            metrics = monitor.end_step(model, loss.item(), optimizer.param_groups[0]['lr'], outputs)
+
+            step_args = {}
+            if accepts_pi_signal:
+                step_args['effective_gamma'] = metrics.effective_gamma
+
+            optimizer.step(**step_args)
+            # --- End of PI Calculation ---
 
             total_loss += loss.item()
             _, predicted = outputs.max(1)
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
-            total_items += targets.size(0)
 
-            # 每10个batch更新一次进度
             if progress_callback and (batch_idx + 1) % 10 == 0:
                 current_acc = 100.0 * correct / total if total > 0 else 0.0
                 current_time = time.time()
-
-                # 计算过去10个batch的平均速度（以step为单位）
                 time_elapsed = current_time - last_callback_time
-                steps_processed = 10  # 每10个batch调用一次回调
+                steps_processed = 10
                 steps_per_sec = steps_processed / time_elapsed if time_elapsed > 0 else 0.0
-
-                # 获取grad norm (统一从 monitor 获取)
-                grad_norm = monitor.compute_grad_norm(model)
-
-                # 获取需要记录 log(PI) 的优化器值
-                log_pi = None
-                beta_complexity = None
-                if needs_second_order and hasattr(optimizer, 'last_log_pi'):
-                    log_pi = optimizer.last_log_pi
-                    beta_complexity = optimizer.last_beta_complexity if hasattr(optimizer, 'last_beta_complexity') else None
-
-                # 获取需要记录 log(PI) 和 entropy 的优化器值
-                log_pi = None
-                beta_complexity = None
-                entropy_val = None
-                if needs_second_order:
-                    if hasattr(optimizer, 'last_log_pi'):
-                        log_pi = optimizer.last_log_pi
-                        beta_complexity = optimizer.last_beta_complexity if hasattr(optimizer, 'last_beta_complexity') else None
-                    # entropy 变量仅在 needs_second_order 块内定义
-                    if 'entropy' in locals():
-                         entropy_val = entropy.item() if entropy is not None else None
-
-                progress_callback(batch_idx + 1, len(train_loader), loss.item(), current_acc, grad_norm, steps_per_sec, log_pi, beta_complexity, entropy_val)
-                
-                monitor.end_step(model, loss.item(), optimizer.param_groups[0]['lr'], log_pi, beta_complexity, entropy_val)
-
                 last_callback_time = current_time
+
+                progress_callback(
+                    monitor.current_epoch, batch_idx + 1, len(train_loader), loss.item(), current_acc,
+                    metrics.grad_norm, steps_per_sec, metrics.pi, metrics.effective_gamma, metrics.entropy
+                )
 
         avg_loss = total_loss / len(train_loader)
         accuracy = 100.0 * correct / total

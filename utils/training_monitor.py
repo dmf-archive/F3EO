@@ -10,6 +10,28 @@ from rich.console import Console
 from rich.table import Table
 
 
+class _PICalculator:
+    """A helper class to calculate Predictive Integrity (PI)."""
+    def __init__(self, gamma: float, ema_beta: float | None = None, eps: float = 1e-8):
+        self.gamma = gamma
+        self.ema_beta = ema_beta
+        self.eps = eps
+        self.exp_avg_pi = 0.0
+        self.pi_step = 0
+
+    def calculate_pi(self, entropy: torch.Tensor, grad_norm: float) -> tuple[float, float]:
+        """Calculates the instantaneous and optionally smoothed PI."""
+        instant_pi = torch.exp(-(entropy + self.gamma * grad_norm)).item()
+
+        if self.ema_beta is not None:
+            self.pi_step += 1
+            self.exp_avg_pi = self.exp_avg_pi * self.ema_beta + instant_pi * (1 - self.ema_beta)
+            bias_correction = 1 - self.ema_beta ** self.pi_step
+            smoothed_pi = self.exp_avg_pi / bias_correction
+            return instant_pi, smoothed_pi
+
+        return instant_pi, instant_pi
+
 @dataclass
 class TrainingMetrics:
     """训练过程中的完整指标集合"""
@@ -26,8 +48,7 @@ class TrainingMetrics:
     gpu_memory_percent: float = 0.0
     cpu_memory_percent: float = 0.0
     timestamp: float = 0.0
-    log_pi: float | None = None
-    beta_complexity: float | None = None
+    pi: float | None = None
     entropy: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -41,6 +62,13 @@ class TrainingMonitor:
         self.config = config
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # PI Calculator
+        pi_config = config.get("pi_calculator", {})
+        self.pi_calculator = _PICalculator(
+            gamma=pi_config.get("gamma", 0.1),
+            ema_beta=pi_config.get("ema_beta") # Defaults to None if not present
+        ) if pi_config else None
 
         # 指标历史记录 (step-level)
         self.metrics_history: list[TrainingMetrics] = []
@@ -98,18 +126,23 @@ class TrainingMonitor:
         """记录步骤开始时间"""
         self.step_start_time = time.time()
 
-    def end_step(self, model: torch.nn.Module, loss: float, lr: float, log_pi: float | None = None, beta_complexity: float | None = None, entropy: float | None = None) -> TrainingMetrics:
+    def end_step(self, model: torch.nn.Module, loss: float, lr: float, logits: torch.Tensor | None) -> TrainingMetrics:
         """记录步骤结束并计算所有指标"""
         step_time = time.time() - self.step_start_time
         iter_per_sec = 1.0 / step_time if step_time > 0 else 0.0
 
-        # 计算梯度范数
         grad_norm = self.compute_grad_norm(model)
-
-        # 获取系统信息
         cpu_memory, gpu_memory_gb, gpu_memory_percent = self.get_system_info()
 
-        # 创建指标对象
+        pi, entropy = None, None
+        if self.pi_calculator and logits is not None:
+            with torch.no_grad():
+                probas = torch.softmax(logits, dim=-1)
+                log_probas = torch.log_softmax(logits, dim=-1)
+                entropy_tensor = -(probas * log_probas).sum(dim=-1).mean()
+                entropy = entropy_tensor.item()
+                _, pi = self.pi_calculator.calculate_pi(entropy_tensor, grad_norm)
+
         metrics = TrainingMetrics(
             epoch=self.current_epoch,
             step=self.current_step,
@@ -122,8 +155,7 @@ class TrainingMonitor:
             gpu_memory_percent=gpu_memory_percent,
             cpu_memory_percent=cpu_memory,
             timestamp=time.time(),
-            log_pi=log_pi,
-            beta_complexity=beta_complexity,
+            pi=pi,
             entropy=entropy
         )
 
@@ -165,7 +197,7 @@ class TrainingMonitor:
             "epoch_time": epoch_time,
             "train_metric": train_results.get("accuracy", train_results.get("perplexity")),
             "valid_metric": valid_results.get("accuracy", valid_results.get("perplexity")),
-            "log_pi": self.metrics_history[-1].log_pi if self.metrics_history and self.metrics_history[-1].log_pi is not None else None,
+            "pi": self.metrics_history[-1].pi if self.metrics_history and self.metrics_history[-1].pi is not None else None,
             "entropy": self.metrics_history[-1].entropy if self.metrics_history and self.metrics_history[-1].entropy is not None else None,
         }
         self.epoch_metrics_history.append(epoch_summary)
@@ -198,10 +230,10 @@ class TrainingMonitor:
             table.add_row("Perplexity", f"{metrics.perplexity:.2f}")
 
         # F3EPI特定指标
-        if metrics.log_pi is not None:
-            table.add_row("Log(PI)", f"{metrics.log_pi:.3f}")
-        if metrics.beta_complexity is not None:
-            table.add_row("β_complexity", f"{metrics.beta_complexity:.3f}")
+        if metrics.pi is not None:
+            table.add_row("PI", f"{metrics.pi:.3f}")
+        if metrics.entropy is not None:
+            table.add_row("Entropy", f"{metrics.entropy:.3f}")
 
         # 性能指标
         table.add_row("Grad Norm", f"{metrics.grad_norm:.4f}" if metrics.grad_norm else "N/A")

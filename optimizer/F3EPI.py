@@ -36,12 +36,8 @@ class F3EPI(Optimizer):
 
         self.single_gpu = single_gpu
         super(F3EPI, self).__init__(params, defaults)
-        self.last_log_pi = 0.0
-        self.last_beta_complexity = 0.0
-        self.pi_step = 0
-        self.exp_avg_log_pi = 0.0
 
-    def step(self, closure=None, loss=None, logits=None):
+    def step(self, closure=None, effective_gamma=None):
         if closure is not None:
             with torch.enable_grad():
                 loss = closure()
@@ -53,62 +49,21 @@ class F3EPI(Optimizer):
                 if p.grad is not None:
                     if p.grad.is_sparse:
                         raise RuntimeError('F3EPI does not support sparse gradients.')
-                    # 检查 p.grad 是否有 grad_fn，确保可以进行二阶反向传播
-                    if p.grad.grad_fn is None and p.grad.requires_grad == False:
+                    if p.grad.grad_fn is None:
                         raise RuntimeError('Gradient tensor does not have grad_fn. When calling loss.backward(), make sure the option create_graph is set to True.')
                     params_with_grad.append(p)
                     grads.append(p.grad)
 
         if not grads:
-            return loss, None
+            return loss
 
-        # 计算用于 meta_grads 的梯度L2范数的平方 (保留计算图)
-        grad_norm_sq_for_meta = sum(g.pow(2).sum() for g in grads)
+        grad_norm_sq = sum(g.pow(2).sum() for g in grads)
 
-        # --- PI 计算重构：使用香农熵 ---
-        beta_complexity = 0.0
-        entropy = None
-        if logits is not None:
-            with torch.no_grad():
-                # 计算香农熵 H(p(y|x))
-                probas = torch.softmax(logits, dim=-1)
-                log_probas = torch.log_softmax(logits, dim=-1)
-                # 确保数值稳定性
-                entropy_per_sample = -torch.sum(probas * log_probas, dim=-1)
-                entropy = entropy_per_sample.mean()
+        beta_complexity = 1.0
+        if effective_gamma is not None:
+            beta_complexity = torch.tanh(torch.tensor(effective_gamma))
 
-                grad_norm_for_pi = torch.sqrt(sum(g.pow(2).sum() for g in grads))
-            alpha = self.param_groups[0]['alpha']
-            gamma = self.param_groups[0]['gamma']
-
-            # 新的 log(PI) 计算
-            log_pi = -alpha * entropy + alpha * gamma * grad_norm_for_pi
-
-            # --- PI 信号平滑 (EMA) ---
-            self.pi_step += 1
-            beta1, _ = self.param_groups[0]['betas']
-
-            # 更新 log(PI) 的指数移动平均
-            self.exp_avg_log_pi = self.exp_avg_log_pi * beta1 + log_pi.item() * (1 - beta1)
-
-            # 偏差修正
-            bias_correction_pi = 1 - beta1 ** self.pi_step
-            smoothed_log_pi = self.exp_avg_log_pi / bias_correction_pi
-
-            # 使用平滑后的 PI 信号计算 beta_complexity，并用 tanh 限制范围
-            beta_complexity = smoothed_log_pi
-
-            # 更新用于日志记录的属性
-            self.last_log_pi = smoothed_log_pi
-            self.last_beta_complexity = beta_complexity
-        else:
-            # 如果没有提供logits，则无法计算PI，退化为普通优化
-            beta_complexity = 0.0
-            self.last_log_pi = 0.0
-            self.last_beta_complexity = 0.0
-
-        # 计算 meta_grads (即 ∇θ ||g||²)
-        meta_grads = torch.autograd.grad(grad_norm_sq_for_meta, params_with_grad, retain_graph=False, allow_unused=True)
+        meta_grads = torch.autograd.grad(grad_norm_sq, params_with_grad, retain_graph=False, allow_unused=True)
 
         # 对元梯度进行范数裁剪
         clip_value = self.param_groups[0]['meta_grad_clip_norm']
@@ -186,4 +141,4 @@ class F3EPI(Optimizer):
                     step_size = group['lr'] / bias_correction1
                     p.addcdiv_(exp_avg, denom, value=-step_size)
 
-        return loss, entropy
+        return loss

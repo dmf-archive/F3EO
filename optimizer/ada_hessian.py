@@ -58,9 +58,9 @@ class Adahessian(Optimizer):
 
         # this is for distributed setting with single node and multi-gpus,
         # for multi nodes setting, we have not support it yet.
-        if not self.single_gpu:
-            for v1 in v:
-                dist.all_reduce(v1)
+        # if not self.single_gpu:
+        #     for v1 in v:
+        #         dist.all_reduce(v1)
         if not self.single_gpu:
             for v_i in v:
                 v_i[v_i < 0.] = -1.
@@ -89,9 +89,9 @@ class Adahessian(Optimizer):
 
         # this is for distributed setting with single node and multi-gpus,
         # for multi nodes setting, we have not support it yet.
-        if not self.single_gpu:
-            for output1 in hutchinson_trace:
-                dist.all_reduce(output1 / torch.cuda.device_count())
+        # if not self.single_gpu:
+        #     for output1 in hutchinson_trace:
+        #         dist.all_reduce(output1 / torch.cuda.device_count())
 
         return hutchinson_trace
 

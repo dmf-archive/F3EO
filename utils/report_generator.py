@@ -16,7 +16,8 @@ class ReportGenerator:
             "valid_metric": [],
             "learning_rate": [],
             "epoch_time": [],
-            "log_pi": [],
+            "pi": [],
+            "effective_gamma": [],
             "entropy": []
         }
         if preload_history is not None:
@@ -27,13 +28,15 @@ class ReportGenerator:
         self.task_type = config["experiment"]["task"]
 
     def log_epoch(self, epoch_num: int, train_results: dict[str, float],
-                  valid_results: dict[str, float], lr: float, epoch_time: float, log_pi: float | None = None, entropy: float | None = None):
-        self.metrics_history["epoch"].append(epoch_num) # Change to epoch_num
+                  valid_results: dict[str, float], lr: float, epoch_time: float,
+                  pi: float | None = None, effective_gamma: float | None = None, entropy: float | None = None):
+        self.metrics_history["epoch"].append(epoch_num)
         self.metrics_history["train_loss"].append(train_results["loss"])
         self.metrics_history["valid_loss"].append(valid_results["loss"])
         self.metrics_history["learning_rate"].append(lr)
         self.metrics_history["epoch_time"].append(epoch_time)
-        self.metrics_history["log_pi"].append(log_pi)
+        self.metrics_history["pi"].append(pi)
+        self.metrics_history["effective_gamma"].append(effective_gamma)
         self.metrics_history["entropy"].append(entropy)
 
         if self.task_type == "wikitext2":
@@ -66,17 +69,14 @@ class ReportGenerator:
             row += f"{self.metrics_history['train_metric'][i]:.2f} | "
             row += f"{self.metrics_history['valid_metric'][i]:.2f} | "
             row += f"{self.metrics_history['learning_rate'][i]:.6f} | "
-            log_pi_val = self.metrics_history['log_pi'][i]
-            if log_pi_val is not None:
-                row += f"{log_pi_val:.3f} | "
-            else:
-                row += "N/A | "
-            
+            pi_val = self.metrics_history['pi'][i]
+            row += f"{pi_val:.3f} | " if pi_val is not None else "N/A | "
+
+            eff_gamma_val = self.metrics_history['effective_gamma'][i]
+            row += f"{eff_gamma_val:.3f} | " if eff_gamma_val is not None else "N/A | "
+
             entropy_val = self.metrics_history['entropy'][i]
-            if entropy_val is not None:
-                row += f"{entropy_val:.3f} | "
-            else:
-                row += "N/A | "
+            row += f"{entropy_val:.3f} | " if entropy_val is not None else "N/A | "
 
             row += f"{self.metrics_history['epoch_time'][i]:.2f}s |"
             table_rows.append(row)
@@ -99,8 +99,8 @@ class ReportGenerator:
 | Seed | {self.config['experiment']['seed']} |
 
 ## Training Results
-| Epoch | Train Loss | Valid Loss | Train {metric_name} | Valid {metric_name} | Learning Rate | Log(PI) | Entropy | Time |
-|-----|--|-----|-----|-----|-----|--------|---|------|
+| Epoch | Train Loss | Valid Loss | Train {metric_name} | Valid {metric_name} | Learning Rate | PI | Eff. Gamma | Entropy | Time |
+|-----|--|-----|-----|-----|-----|----|---|---|------|
 {table_content}
 
 ## Performance Summary
