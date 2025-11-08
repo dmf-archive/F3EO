@@ -50,14 +50,12 @@ def create_optimizer_scheduler(model, config, train_loader):
 
     optimizer_name = config["optimizer"]["name"]
     optimizer_config = config["optimizer"].copy()
-    optimizer_config.pop("name", None)  # 移除name字段，只保留配置参数
+    optimizer_config.pop("name", None)
 
-    # 特殊处理AdaFisher，它需要模型作为第一个参数
     if optimizer_name == "AdaFisher":
         optimizer_config["model"] = model
 
-    # 新工厂接口：返回 (optimizer, tags_dict)
-    optimizer, tags = get_optimizer(optimizer_name, model.parameters(), **optimizer_config)
+    optimizer, tags, pi_config = get_optimizer(optimizer_name, model.parameters(), **optimizer_config)
 
     scheduler = None
     if "scheduler" in config:
@@ -72,7 +70,7 @@ def create_optimizer_scheduler(model, config, train_loader):
                 gamma=config["scheduler"]["gamma"]
             )
 
-    return optimizer, scheduler, tags
+    return optimizer, scheduler, tags, pi_config
 
 
 def train(config: dict[str, Any], task_class, config_name: str) -> None:
@@ -87,7 +85,7 @@ def train(config: dict[str, Any], task_class, config_name: str) -> None:
     train_loader, valid_loader = task.get_dataloaders()
     model = task.get_model().to(device)
     criterion = task.get_criterion()
-    optimizer, scheduler, optimizer_tags = create_optimizer_scheduler(model, config, train_loader)
+    optimizer, scheduler, optimizer_tags, pi_config = create_optimizer_scheduler(model, config, train_loader)
 
     epochs = config["train"]["epochs"]
 
@@ -97,7 +95,7 @@ def train(config: dict[str, Any], task_class, config_name: str) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 初始化训练监控器（支持断点续训）
-    monitor = TrainingMonitor(config, output_dir)
+    monitor = TrainingMonitor(config, output_dir, pi_config=pi_config)
 
     # 检查是否存在检查点文件
     checkpoint_path = output_dir / "latest_checkpoint.pt"
@@ -199,7 +197,7 @@ def train(config: dict[str, Any], task_class, config_name: str) -> None:
                     if pi is not None:
                         base_msg += f" | PI: {pi:.3f}"
                     if effective_gamma is not None:
-                        base_msg += f" | Eff. γ: {effective_gamma:.3f}"
+                        base_msg += f" | β: {effective_gamma:.3f}"
                     if entropy is not None:
                         base_msg += f" | H: {entropy:.3f}"
 

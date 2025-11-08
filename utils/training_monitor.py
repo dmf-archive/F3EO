@@ -50,6 +50,7 @@ class TrainingMetrics:
     timestamp: float = 0.0
     pi: float | None = None
     entropy: float | None = None
+    effective_gamma: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -58,17 +59,19 @@ class TrainingMetrics:
 class TrainingMonitor:
     """增强的训练监控器，支持完整的指标追踪和断点续训"""
 
-    def __init__(self, config: dict[str, Any], output_dir: Path):
+    def __init__(self, config: dict[str, Any], output_dir: Path, pi_config: dict[str, Any] | None = None):
         self.config = config
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # PI Calculator
-        pi_config = config.get("pi_calculator", {})
-        self.pi_calculator = _PICalculator(
-            gamma=pi_config.get("gamma", 0.1),
-            ema_beta=pi_config.get("ema_beta") # Defaults to None if not present
-        ) if pi_config else None
+        if pi_config and "gamma" in pi_config:
+            self.pi_calculator = _PICalculator(
+                gamma=pi_config.get("gamma", 0.1),
+                ema_beta=pi_config.get("ema_beta")
+            )
+        else:
+            self.pi_calculator = None
 
         # 指标历史记录 (step-level)
         self.metrics_history: list[TrainingMetrics] = []
@@ -134,7 +137,7 @@ class TrainingMonitor:
         grad_norm = self.compute_grad_norm(model)
         cpu_memory, gpu_memory_gb, gpu_memory_percent = self.get_system_info()
 
-        pi, entropy = None, None
+        pi, entropy, effective_gamma = None, None, None
         if self.pi_calculator and logits is not None:
             with torch.no_grad():
                 probas = torch.softmax(logits, dim=-1)
@@ -142,6 +145,10 @@ class TrainingMonitor:
                 entropy_tensor = -(probas * log_probas).sum(dim=-1).mean()
                 entropy = entropy_tensor.item()
                 _, pi = self.pi_calculator.calculate_pi(entropy_tensor, grad_norm)
+                
+                # Calculate effective_gamma for PI-aware optimizers
+                if pi is not None:
+                    effective_gamma = -torch.log(1.0 - torch.tensor(pi) + self.pi_calculator.eps).item()
 
         metrics = TrainingMetrics(
             epoch=self.current_epoch,
@@ -156,7 +163,8 @@ class TrainingMonitor:
             cpu_memory_percent=cpu_memory,
             timestamp=time.time(),
             pi=pi,
-            entropy=entropy
+            entropy=entropy,
+            effective_gamma=effective_gamma
         )
 
         self.metrics_history.append(metrics)

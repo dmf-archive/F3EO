@@ -190,8 +190,16 @@ class Wikitext2Task:
                 last_callback_time = current_time
 
                 progress_callback(
-                    monitor.current_epoch, batch_idx + 1, len(train_loader), loss.item(), current_ppl,
-                    metrics.grad_norm, steps_per_sec, metrics.pi, metrics.effective_gamma, metrics.entropy
+                    epoch=monitor.current_epoch,
+                    step=batch_idx + 1,
+                    total_steps=len(train_loader),
+                    loss=loss.item(),
+                    metric=current_ppl,
+                    grad_norm=metrics.grad_norm,
+                    items_per_sec=steps_per_sec,
+                    pi=metrics.pi,
+                    effective_gamma=metrics.effective_gamma,
+                    entropy=metrics.entropy
                 )
 
         avg_loss = total_loss / total_tokens if total_tokens > 0 else 0

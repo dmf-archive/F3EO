@@ -70,11 +70,10 @@ class F3EWD(Optimizer):
         grad_norm_sq = sum(g.pow(2).sum() for g in grads)
 
         # --- PI-based modulation ---
-        # If effective_gamma is provided externally, use it directly.
-        # Otherwise, fall back to the base gamma from config (no modulation).
+        # Use the externally provided effective_gamma for PI-based modulation
         multiplier = 1.0
         if effective_gamma is not None:
-            multiplier = torch.exp(effective_gamma)
+            multiplier = torch.exp(torch.tensor(effective_gamma)).item()
 
         adaptive_weight_decay = self.param_groups[0]['weight_decay'] * multiplier
         beta_multiplier = multiplier
