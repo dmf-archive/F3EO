@@ -1,19 +1,21 @@
 from pathlib import Path
+from typing import Any
+
 import torch
-from typing import Any, Dict, List
 
 from utils.data import MetricStore
+
 
 class CheckpointSaver:
     def __init__(self, output_dir: Path, max_checkpoints: int = 3):
         self.output_dir = output_dir
         self.max_checkpoints = max_checkpoints
-        self.checkpoint_files: List[Path] = []
+        self.checkpoint_files: list[Path] = []
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def save(self, epoch: int, model: torch.nn.Module, optimizer: torch.optim.Optimizer,
              scheduler: torch.optim.lr_scheduler._LRScheduler | None, store: MetricStore):
-        
+
         # Note: We save the whole store, which might be large.
         # A more advanced version could save only recent history.
         checkpoint = {
@@ -21,7 +23,7 @@ class CheckpointSaver:
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "scheduler_state_dict": scheduler.state_dict() if scheduler else None,
-            "store": store 
+            "store": store
         }
 
         # Save current epoch's checkpoint
@@ -41,8 +43,8 @@ class CheckpointSaver:
 
     @staticmethod
     def load(checkpoint_path: Path, model: torch.nn.Module, optimizer: torch.optim.Optimizer,
-             scheduler: torch.optim.lr_scheduler._LRScheduler | None) -> Dict[str, Any]:
-        
+             scheduler: torch.optim.lr_scheduler._LRScheduler | None) -> dict[str, Any]:
+
         if not checkpoint_path.exists():
             return None
 

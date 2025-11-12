@@ -37,7 +37,7 @@ class F3EPI(Optimizer):
         self.single_gpu = single_gpu
         super(F3EPI, self).__init__(params, defaults)
 
-    def step(self, closure=None, effective_gamma=None):
+    def step(self, closure=None, pi_object=None):
         if closure is not None:
             with torch.enable_grad():
                 loss = closure()
@@ -60,8 +60,8 @@ class F3EPI(Optimizer):
         grad_norm_sq = sum(g.pow(2).sum() for g in grads)
 
         beta_complexity = 1.0
-        if effective_gamma is not None:
-            beta_complexity = torch.tanh(torch.tensor(effective_gamma))
+        if pi_object is not None:
+            beta_complexity = torch.tanh(torch.tensor(pi_object.log_pi))
 
         meta_grads = torch.autograd.grad(grad_norm_sq, params_with_grad, retain_graph=False, allow_unused=True)
 

@@ -58,7 +58,7 @@ class F3EO_raw(Optimizer):
             return loss
 
         grad_norm_sq = sum(g.pow(2).sum() for g in grads)
-        
+
         meta_grads = torch.autograd.grad(grad_norm_sq, params_with_grad, retain_graph=False, allow_unused=True)
 
         clip_value = self.param_groups[0]['meta_grad_clip_norm']
@@ -95,7 +95,7 @@ class F3EO_raw(Optimizer):
                             if first_grad_dot > 0:
                                 projection_scale = torch.dot(meta_grad_flat, first_grad_flat) / first_grad_dot
                                 meta_grad = meta_grad - projection_scale * first_grad
-                        
+
                         effective_grad = first_grad + meta_grad
 
                     state = self.state[p]

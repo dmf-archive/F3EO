@@ -1,11 +1,12 @@
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
-from utils.data import MetricStore, EpochMetric
+from utils.data import EpochMetric, MetricStore
+
 
 class MDLogger:
-    def __init__(self, config: Dict[str, Any], output_dir: Path):
+    def __init__(self, config: dict[str, Any], output_dir: Path):
         self.config = config
         self.output_dir = output_dir
 
@@ -20,32 +21,38 @@ class MDLogger:
         with open(report_path, 'w') as f:
             f.write(report)
 
-    def _generate_report(self, epoch_data: List[EpochMetric]) -> str:
-        
+    def _generate_report(self, epoch_data: list[EpochMetric]) -> str:
+
         task_names = sorted(list(set(e.task_name for e in epoch_data)))
-        
-        headers = ["Epoch", "Task", "Train Loss", "LR", "PI", "Eff. Gamma", "Entropy", "Grad Norm"]
-        
+
+        headers = ["Epoch", "Task", "Train Loss", "LR", "PI", "Eff. Gamma", "Entropy", "Grad Norm", "Epoch Time (s)", "Peak GPU Mem (MB)"]
+
         metric_keys = set()
         for epoch in epoch_data:
             metric_keys.update(epoch.task_metrics.metrics.keys())
         sorted_metric_keys = sorted(list(metric_keys))
         headers.extend([f"Eval {key.capitalize()}" for key in sorted_metric_keys])
-        
+
         table_header = "| " + " | ".join(headers) + " |"
         table_separator = "|-" + "-|-".join(["-" * len(h) for h in headers]) + "-|"
-        
+
         table_rows = []
         for data in epoch_data:
             row = f"| {data.global_epoch + 1} "
             row += f"| {data.task_name} "
             row += f"| {data.avg_train_loss:.4f} "
             row += f"| {data.learning_rate:.6f} "
-            row += f"| {data.avg_pi:.3f} " if data.avg_pi is not None else "| N/A "
-            row += f"| {data.avg_effective_gamma:.3f} " if data.avg_effective_gamma is not None else "| N/A "
+            pi_val = getattr(data, 'avg_pi_obj', None)
+            if pi_val is not None:
+                row += f"| {pi_val.raw_pi:.3f} "
+            else:
+                row += f"| {getattr(data, 'avg_pi', 'N/A')} " if getattr(data, 'avg_pi', None) is not None else "| N/A "
+            row += f"| {getattr(data, 'avg_effective_gamma', 'N/A')} " if getattr(data, 'avg_effective_gamma', None) is not None else "| N/A "
             row += f"| {data.avg_entropy:.3f} " if data.avg_entropy is not None else "| N/A "
             row += f"| {data.grad_norm:.4f} " if data.grad_norm is not None else "| N/A "
-            
+            row += f"| {data.epoch_time_s:.2f} " if data.epoch_time_s is not None else "| N/A "
+            row += f"| {data.peak_gpu_mem_mb:.1f} " if data.peak_gpu_mem_mb is not None else "| N/A "
+
             for key in sorted_metric_keys:
                 metric_val = data.task_metrics.metrics.get(key)
                 row += f"| {metric_val:.2f} " if isinstance(metric_val, float) else "| N/A "
@@ -74,7 +81,7 @@ class MDLogger:
 """
         return report
 
-    def _get_best_metric_summary(self, epoch_data: List[EpochMetric], task_names: List[str], metric_keys: List[str]) -> str:
+    def _get_best_metric_summary(self, epoch_data: list[EpochMetric], task_names: list[str], metric_keys: list[str]) -> str:
         summary = []
         for name in task_names:
             for key in metric_keys:
@@ -84,8 +91,8 @@ class MDLogger:
                 best_val = min(metrics) if is_ppl else max(metrics)
                 summary.append(f"{name} {key.capitalize()}: {best_val:.2f}")
         return ", ".join(summary)
-    
-    def _get_final_metrics_summary(self, epoch_data: List[EpochMetric], task_names: List[str]) -> str:
+
+    def _get_final_metrics_summary(self, epoch_data: list[EpochMetric], task_names: list[str]) -> str:
         summary = []
         for name in task_names:
             last_epoch_for_task = max([e for e in epoch_data if e.task_name == name], key=lambda x: x.global_epoch)

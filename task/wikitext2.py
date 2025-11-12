@@ -1,15 +1,13 @@
 import math
-import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import torch
 import torch.nn as nn
 from datasets import load_dataset
 from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
 from torch.utils.data import DataLoader, Dataset
-
 
 from .base import BaseTask
 
@@ -153,15 +151,18 @@ class Wikitext2Task(BaseTask):
     def train_step(self, model: nn.Module, batch: Any, criterion: nn.Module,
                    optimizer: torch.optim.Optimizer, device: torch.device,
                    needs_second_order: bool, accepts_pi_signal: bool,
-                   eff_gamma: float | None) -> tuple[torch.Tensor, float, Dict[str, float]]:
-        
+                   pi_object=None) -> tuple[torch.Tensor, float, dict[str, float]]:
+
         batch = {k: v.to(device) for k, v in batch.items()}
 
         optimizer.zero_grad()
         log_probas = model(batch["source"])
         loss = model.loss(log_probas, batch["target"], batch["mask"])
         loss.backward(create_graph=needs_second_order)
-        optimizer.step()
+        if accepts_pi_signal:
+            optimizer.step(pi_object=pi_object)
+        else:
+            optimizer.step()
 
         return log_probas.detach(), loss.item(), {}
 

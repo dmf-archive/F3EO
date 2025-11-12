@@ -31,23 +31,7 @@ f3eo-bench/
       └── loss_landscape.ipynb  # 损失地形可视化（参考 adafisher）
 ```
 
-## 2. 技术契约
-
-1. **零手工调参**  
-   所有实验使用同级配置文件，学习率、batch、epoch 固定；只换优化器类名。
-2. **单卡 8 GB 上限**  
-   默认 bf16 native，batch 自动回退到不 OOM。
-3. **可复现**  
-   全局 `seed=42`，PyTorch 确定性卷积；日志输出完整命令与环境哈希。
-4. **终端可视化**  
-   每 10 步刷新 Rich 表格：loss、acc、lr、GPU-Mem、F3EO-grad-norm。
-5. **一键报告**  
-   跑完自动生成 `outputs/summary.md`：
-   - step级别print log markdownlized转录
-   - 最终验证指标
-   - 遗忘率（CL 任务）
-
-## 4. 实验流水线（3 个脚本，一条命令）
+## 实验流水线（多种配置，一条命令）
 
 ```bash
 python -m scripts/train.py --config config/cifar10.toml

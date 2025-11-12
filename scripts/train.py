@@ -1,17 +1,19 @@
 import argparse
 import importlib
 import sys
+import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import toml
 import torch
 
-from utils.data import MetricStore, EpochMetric, StepMetric, TaskMetrics
+from utils.data import EpochMetric, MetricStore, StepMetric, TaskMetrics
+from utils.metrics import PICalculator, compute_grad_norm
+from utils.observers.checkpoint import CheckpointSaver
 from utils.observers.console import ConsoleLogger
 from utils.observers.markdown import MDLogger
-from utils.observers.checkpoint import CheckpointSaver
-from utils.metrics import PICalculator, compute_grad_norm
+
 
 def load_config(config_path: Path) -> dict:
     with open(config_path) as f:
@@ -43,7 +45,7 @@ def create_scheduler(optimizer, config):
         return torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=config["scheduler"]["milestones"], gamma=config["scheduler"]["gamma"])
     return None
 
-def train(config: Dict[str, Any], config_name: str):
+def train(config: dict[str, Any], config_name: str):
     device = torch.device(config["experiment"]["device"])
     torch.manual_seed(config["experiment"]["seed"])
     if torch.cuda.is_available():
@@ -63,7 +65,7 @@ def train(config: Dict[str, Any], config_name: str):
     console_logger = ConsoleLogger(config)
     md_logger = MDLogger(config, output_dir)
     ckpt_saver = CheckpointSaver(output_dir)
-    
+
     pi_gamma = pi_config.get("gamma", 1.0) if pi_config else 1.0
     pi_alpha = pi_config.get("alpha", 1.0) if pi_config else 1.0
     pi_ema_beta = pi_config.get("ema_beta") if pi_config else None
@@ -77,22 +79,27 @@ def train(config: Dict[str, Any], config_name: str):
         start_epoch = checkpoint["epoch"] + 1
         store = checkpoint["store"]
         print(f"Resuming training from epoch {start_epoch}")
-    
+
     train_loaders = {name: task.get_dataloaders()[0] for name, task in tasks.items()}
     valid_loaders = {name: task.get_dataloaders()[1] for name, task in tasks.items()}
-    
+
     global_step = 0
     epochs = config["train"]["epochs"]
 
     for global_epoch in range(start_epoch, epochs):
         model.train()
-        
+
         for task_name in task_names:
             current_task = tasks[task_name]
             current_train_loader = train_loaders[task_name]
             task_epoch = len(store.get_history_for_task(task_name))
-            
+
             console_logger.on_epoch_begin(global_epoch, len(current_train_loader))
+
+            # Start timing and reset GPU memory stats for this epoch
+            epoch_start_time = time.time()
+            if device.type == 'cuda':
+                torch.cuda.reset_peak_memory_stats()
 
             epoch_logits_list = []
             epoch_loss_sum = 0.0
@@ -100,22 +107,22 @@ def train(config: Dict[str, Any], config_name: str):
 
             for step, batch in enumerate(current_train_loader):
                 latest_task_epoch_metric = store.get_latest_epoch_for_task(task_name)
-                eff_gamma = latest_task_epoch_metric.avg_effective_gamma if latest_task_epoch_metric else None
+                pi_object = latest_task_epoch_metric.avg_pi_obj if latest_task_epoch_metric else None
 
                 logits, loss, _ = current_task.train_step(
                     model=model, batch=batch, criterion=criterion, optimizer=optimizer, device=device,
                     needs_second_order=optimizer_tags.get("requires_second_order", False),
                     accepts_pi_signal=optimizer_tags.get("accepts_pi_signal", False),
-                    eff_gamma=eff_gamma
+                    pi_object=pi_object
                 )
-                
+
                 step_metric = StepMetric(
                     task_name=task_name, global_step=global_step, task_epoch=task_epoch,
                     step_in_epoch=step, loss=loss, learning_rate=optimizer.param_groups[0]['lr']
                 )
                 store.add_step(step_metric)
                 console_logger.on_step_end(step_metric, len(current_train_loader))
-                
+
                 if logits is not None:
                      epoch_logits_list.append(logits.detach())
                 epoch_loss_sum += loss
@@ -128,27 +135,33 @@ def train(config: Dict[str, Any], config_name: str):
             task_metrics = TaskMetrics(metrics=task_metrics_dict)
             model.train()
 
+            # Calculate epoch time and peak GPU memory
+            epoch_time = time.time() - epoch_start_time
+            peak_gpu_mem_mb = None
+            if device.type == 'cuda':
+                peak_gpu_mem_bytes = torch.cuda.max_memory_allocated()
+                peak_gpu_mem_mb = peak_gpu_mem_bytes / (1024 ** 2)
+
             avg_train_loss = epoch_loss_sum / len(current_train_loader)
             avg_grad_norm = sum(epoch_grad_norm_list) / len(epoch_grad_norm_list) if epoch_grad_norm_list else None
-            
-            avg_entropy, avg_pi, avg_eff_gamma = None, None, None
+
+            avg_entropy, avg_pi_obj = None, None
             if pi_calculator and epoch_logits_list:
                 with torch.no_grad():
                     all_logits = torch.cat(epoch_logits_list, dim=0)
                     probas = torch.softmax(all_logits, dim=-1)
                     entropy_tensor = -(probas * torch.log_softmax(all_logits, dim=-1)).sum(dim=-1).mean()
                     avg_entropy = entropy_tensor.item()
-                    
+
                     if avg_grad_norm is not None:
-                        _, avg_pi = pi_calculator.calculate_pi(torch.tensor(avg_entropy), torch.tensor(avg_grad_norm))
-                        if avg_pi is not None:
-                            avg_eff_gamma = -torch.log(1.0 - torch.tensor(avg_pi) + pi_calculator.eps).item()
+                        _, avg_pi_obj = pi_calculator.calculate_pi(torch.tensor(avg_entropy), torch.tensor(avg_grad_norm))
 
             epoch_metric = EpochMetric(
                 task_name=task_name, task_epoch=task_epoch, global_epoch=global_epoch,
                 avg_train_loss=avg_train_loss, task_metrics=task_metrics,
-                avg_pi=avg_pi, avg_effective_gamma=avg_eff_gamma, avg_entropy=avg_entropy,
-                grad_norm=avg_grad_norm, learning_rate=optimizer.param_groups[0]['lr']
+                avg_pi_obj=avg_pi_obj, avg_entropy=avg_entropy,
+                grad_norm=avg_grad_norm, learning_rate=optimizer.param_groups[0]['lr'],
+                epoch_time_s=epoch_time, peak_gpu_mem_mb=peak_gpu_mem_mb
             )
             store.add_epoch(epoch_metric)
             # Debug: 验证数据是否正确存储
@@ -158,7 +171,7 @@ def train(config: Dict[str, Any], config_name: str):
 
         console_logger.on_epoch_end(store)
         ckpt_saver.save(global_epoch, model, optimizer, scheduler, store)
-        
+
         if scheduler:
             scheduler.step()
 
@@ -169,12 +182,12 @@ def main():
     parser = argparse.ArgumentParser(description="Unified F3EO-Bench Training Framework")
     parser.add_argument("--config", type=str, required=True, help="Path to TOML configuration file")
     args = parser.parse_args()
-    
+
     config_path = Path(args.config)
     if not config_path.exists():
         print(f"Config file not found: {config_path}")
         sys.exit(1)
-        
+
     config = load_config(config_path)
     config_name = config_path.stem
     train(config, config_name)

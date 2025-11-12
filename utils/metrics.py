@@ -1,4 +1,13 @@
+from dataclasses import dataclass
+
 import torch
+
+
+@dataclass
+class PIObject:
+    raw_pi: float
+    log_pi: float
+    neg_exp_pi: float
 
 class PICalculator:
     """A helper class to calculate Predictive Integrity (PI)."""
@@ -10,18 +19,28 @@ class PICalculator:
         self.exp_avg_pi = 0.0
         self.pi_step = 0
 
-    def calculate_pi(self, entropy: torch.Tensor, grad_norm: float) -> tuple[float, float]:
+    def calculate_pi(self, entropy: torch.Tensor, grad_norm: float) -> tuple[PIObject, PIObject]:
         """Calculates the instantaneous and optionally smoothed PI."""
-        instant_pi = torch.exp(-(self.alpha * entropy + self.gamma * grad_norm)).item()
+        instant_pi_val = torch.exp(-(self.alpha * entropy + self.gamma * grad_norm)).item()
+
+        def _create_pi_object(pi_value: float) -> PIObject:
+            return PIObject(
+                raw_pi=pi_value,
+                log_pi=-torch.log(1.0 - torch.tensor(pi_value) + self.eps).item(),
+                neg_exp_pi=-torch.exp(torch.tensor(pi_value)).item()
+            )
+
+        instant_pi_obj = _create_pi_object(instant_pi_val)
 
         if self.ema_beta is not None:
             self.pi_step += 1
-            self.exp_avg_pi = self.exp_avg_pi * self.ema_beta + instant_pi * (1 - self.ema_beta)
+            self.exp_avg_pi = self.exp_avg_pi * self.ema_beta + instant_pi_val * (1 - self.ema_beta)
             bias_correction = 1 - self.ema_beta ** self.pi_step
-            smoothed_pi = self.exp_avg_pi / bias_correction
-            return instant_pi, smoothed_pi
+            smoothed_pi_val = self.exp_avg_pi / bias_correction
+            smoothed_pi_obj = _create_pi_object(smoothed_pi_val)
+            return instant_pi_obj, smoothed_pi_obj
 
-        return instant_pi, instant_pi
+        return instant_pi_obj, instant_pi_obj
 
 def compute_grad_norm(model: torch.nn.Module) -> float:
     """Computes the total L2 norm of the gradients of a model."""

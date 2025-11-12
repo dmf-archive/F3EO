@@ -1,6 +1,7 @@
 import torch
 from torch.optim.optimizer import Optimizer
 
+
 class AdaF3E(Optimizer):
     """
     Implements the AdaF3E algorithm (Scalar-Modulated version).
@@ -91,16 +92,16 @@ class AdaF3E(Optimizer):
                         state['max_exp_avg_sq'] = torch.zeros_like(p, memory_format=torch.preserve_format)
 
                 exp_avg, exp_avg_sq, exp_curvature = state['exp_avg'], state['exp_avg_sq'], state['exp_curvature']
-                
+
                 state['step'] += 1
                 beta1, beta2, beta3 = group['betas']
-                
+
                 # PIWD: 使用 effective_gamma 动态调整权重衰减
                 adaptive_weight_decay = group['weight_decay']
                 if effective_gamma is not None and effective_gamma > 0:
                     multiplier = torch.exp(torch.tensor(effective_gamma)).item()
                     adaptive_weight_decay *= multiplier
-                
+
                 if adaptive_weight_decay > 0:
                     p.add_(p, alpha=-adaptive_weight_decay * group['lr'])
 
@@ -115,13 +116,13 @@ class AdaF3E(Optimizer):
                 s = 0.0
                 if meta_grad is not None:
                     s = torch.dot(grad.view(-1), meta_grad.view(-1)).item()
-                
+
                 beta_s = group['betas'][2]
                 self.state['s_ema'] = beta_s * self.state['s_ema'] + (1 - beta_s) * s
-                
+
                 # Modulation function: f(x) = exp(-alpha * x)
                 modulation_factor = torch.exp(torch.tensor(-group['alpha'] * self.state['s_ema'])).item()
-                
+
                 # Modulate learning rate
                 modulated_lr = group['lr'] * modulation_factor
                 # ---
@@ -135,5 +136,5 @@ class AdaF3E(Optimizer):
 
                 step_size = modulated_lr / bias_correction1
                 p.addcdiv_(exp_avg, denom, value=-step_size)
-                    
+
         return loss

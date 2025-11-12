@@ -1,13 +1,11 @@
 import random
-import time
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
-
 
 from .base import BaseTask
 
@@ -114,18 +112,18 @@ class Cifar10Task(BaseTask):
     def train_step(self, model: nn.Module, batch: Any, criterion: nn.Module,
                    optimizer: torch.optim.Optimizer, device: torch.device,
                    needs_second_order: bool, accepts_pi_signal: bool,
-                   eff_gamma: float | None) -> tuple[torch.Tensor, float, Dict[str, float]]:
-        
+                   pi_object: "PIObject | None") -> tuple[torch.Tensor, float, dict[str, float]]:
+
         inputs, targets = batch
         inputs, targets = inputs.to(device), targets.to(device)
-        
+
         optimizer.zero_grad()
         outputs = model(inputs)
         loss = criterion(outputs, targets)
         loss.backward(create_graph=needs_second_order)
 
         if accepts_pi_signal:
-            optimizer.step(effective_gamma=eff_gamma)
+            optimizer.step(pi_object=pi_object)
         else:
             optimizer.step()
 

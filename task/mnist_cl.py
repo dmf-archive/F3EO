@@ -1,7 +1,5 @@
-import math
-import time
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -35,7 +33,7 @@ class MnistClTask(BaseTask):
             num_workers=self.num_workers, pin_memory=True, drop_last=True
         )
 
-    def get_dataloaders(self) -> Tuple[DataLoader, DataLoader]:
+    def get_dataloaders(self) -> tuple[DataLoader, DataLoader]:
         # This task is special, it returns a list of loaders.
         # The main train loop will need to be adapted to handle this.
         root = Path("./data")
@@ -70,10 +68,10 @@ class MnistClTask(BaseTask):
         return (pred == targets).float().mean().item() * 100.0
 
     def train_step(self, model: nn.Module, batch: Any, criterion: nn.Module,
-                   optimizer: torch.optim.Optimizer, pi_config: Dict[str, Any] | None) -> tuple[torch.Tensor, float]:
+                   optimizer: torch.optim.Optimizer, pi_config: dict[str, Any] | None) -> tuple[torch.Tensor, float]:
         data, target = batch
         data, target = data.to(self.device), target.to(self.device)
-        
+
         needs_second_order = pi_config is not None
 
         optimizer.zero_grad()
@@ -99,7 +97,7 @@ class MnistClTask(BaseTask):
                 _, predicted = logits.max(1)
                 total += target.size(0)
                 correct += predicted.eq(target).sum().item()
-        
+
         avg_loss = total_loss / len(test_loader)
         accuracy = 100.0 * correct / total
         return {"loss": avg_loss, "accuracy": accuracy}

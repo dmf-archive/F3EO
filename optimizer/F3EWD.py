@@ -38,14 +38,14 @@ class F3EWD(Optimizer):
         self.pi_step = 0
         self.exp_avg_log_pi = 0.0
 
-    def step(self, closure=None, effective_gamma=None):
+    def step(self, closure=None, pi_object=None):
         """Performs a single optimization step.
         
         Args:
             closure: A closure that reevaluates the model and returns the loss.
-            effective_gamma: Optional external PI signal. If provided, it overrides
-                              the internal gamma calculation and is used directly
-                              for the exponential penalty.
+            pi_object: Optional external PI signal. If provided, it overrides
+                               the internal gamma calculation and is used directly
+                               for the exponential penalty.
         """
         loss = None
         if closure is not None:
@@ -71,10 +71,11 @@ class F3EWD(Optimizer):
         grad_norm_sq = sum(g.pow(2).sum() for g in grads)
 
         # --- PI-based modulation ---
-        # Use the externally provided effective_gamma for PI-based modulation
+        # Use the externally provided pi_object for PI-based modulation
         multiplier = 1.0
-        if effective_gamma is not None:
-            multiplier = torch.exp(torch.tensor(effective_gamma)).item()
+        if pi_object is not None:
+            # Note: We use log_pi here which is -log(1-pi), so exp(log_pi) is 1/(1-pi)
+            multiplier = torch.exp(torch.tensor(pi_object.log_pi)).item()
 
         adaptive_weight_decay = self.param_groups[0]['weight_decay'] * multiplier
         beta_multiplier = multiplier

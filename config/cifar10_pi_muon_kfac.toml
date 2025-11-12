@@ -1,0 +1,42 @@
+[experiment]
+tasks = ["cifar10"]
+seed = 42
+device = "cuda:0"
+
+[model]
+arch = "resnet18_cifar"
+num_classes = 10
+
+[data]
+batch_size = 128
+num_workers = 4
+aug = true
+cutout = true
+n_holes = 1
+cutout_length = 16
+
+[optimizer]
+name = "PI_Muon_KFAC"
+lr = 0.001
+momentum = 0.9
+stat_decay = 0.95
+damping = 0.001
+kl_clip = 0.001
+weight_decay = 0.0005
+TCov = 10
+TInv = 100
+muon_momentum = 0.95
+
+# PI-related config
+alpha = 1.0
+ema_beta = 0.9
+
+[scheduler]
+name = "multistep"
+milestones = [25, 40]
+gamma = 0.1
+
+[train]
+epochs = 2
+log_every = 10
+ckpt_every = 50
