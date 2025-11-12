@@ -28,8 +28,12 @@ def get_optimizer(name: str, params, **config):
         opt = AdaFisher(model, **config)
         tags["requires_second_order"] = True
 
+    elif name == "Muon":
+        from .muon import SingleDeviceMuon
+        opt = SingleDeviceMuon(params, **config)
+
     # PI 感知型优化器
-    elif name in ["F3EPI", "AdamW_PI", "F3EWD"]:
+    elif name in ["F3EPI", "AdamW_PI", "F3EWD", "PI_Muon_AdaFisher", "PI_Muon_KFAC"]:
         pi_config = {k: config.pop(k) for k in list(config.keys()) if k in ["gamma", "ema_beta", "alpha"]}
         tags["accepts_pi_signal"] = True
 
@@ -43,6 +47,20 @@ def get_optimizer(name: str, params, **config):
         elif name == "F3EWD":
             from .F3EWD import F3EWD
             opt = F3EWD(params, **config)
+            tags["requires_second_order"] = True
+        elif name == "PI_Muon_AdaFisher":
+            from .pi_muon_adafisher import PI_Muon_AdaFisher
+            if "model" not in config:
+                raise ValueError("PI_Muon_AdaFisher optimizer requires 'model' parameter in config")
+            model = config.pop("model")
+            opt = PI_Muon_AdaFisher(model, **config)
+            tags["requires_second_order"] = True
+        elif name == "PI_Muon_KFAC":
+            from .pi_muon_kfac import PI_Muon_KFAC
+            if "model" not in config:
+                raise ValueError("PI_Muon_KFAC optimizer requires 'model' parameter in config")
+            model = config.pop("model")
+            opt = PI_Muon_KFAC(model, **config)
             tags["requires_second_order"] = True
 
     elif name == "F3EO_raw":

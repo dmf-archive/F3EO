@@ -9,7 +9,7 @@ num_classes = 10
 
 [data]
 batch_size = 256   # 对齐AdaFisher
-num_workers = 5    # 对齐AdaFisher
+num_workers = 0    # 禁用多进程以进行调试
 aug = true         # 启用数据增强
 cutout = true      # 启用cutout增强
 n_holes = 1        # cutout参数
@@ -25,7 +25,7 @@ name = "cosine" # 使用CosineAnnealingLR
 T_max = 200     # 对齐AdaFisher
 
 [train]
-epochs = 50 # 对齐F3EPI实验
+epochs = 2 # 减少epoch以加快调试
 log_every = 10
 ckpt_every = 50
 

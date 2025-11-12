@@ -1,0 +1,40 @@
+[experiment]
+tasks = ["cifar10"]
+seed = 42
+device = "cuda:0"
+
+[model]
+arch = "resnet18_cifar"
+num_classes = 10
+
+[data]
+batch_size = 128
+num_workers = 4
+aug = true
+cutout = true
+n_holes = 1
+cutout_length = 16
+
+[optimizer]
+name = "PI_Muon_AdaFisher"
+lr = 0.001
+beta = 0.9
+Lambda = 0.001
+gamma = 0.8
+TCov = 10
+weight_decay = 0.0005
+muon_momentum = 0.95
+
+# PI-related config, will be extracted by get_optimizer
+alpha = 1.0
+ema_beta = 0.9
+
+[scheduler]
+name = "multistep"
+milestones = [25, 40]
+gamma = 0.1
+
+[train]
+epochs = 2
+log_every = 10
+ckpt_every = 50

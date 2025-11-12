@@ -29,7 +29,7 @@ def create_optimizer(model, config):
     from optimizer import get_optimizer
     opt_name = config["optimizer"]["name"]
     opt_config = {k: v for k, v in config["optimizer"].items() if k != "name"}
-    if opt_name == "AdaFisher":
+    if opt_name in ["AdaFisher", "PI_Muon_AdaFisher", "PI_Muon_KFAC"]:
         opt_config["model"] = model
     return get_optimizer(opt_name, model.parameters(), **opt_config)
 
@@ -151,6 +151,10 @@ def train(config: Dict[str, Any], config_name: str):
                 grad_norm=avg_grad_norm, learning_rate=optimizer.param_groups[0]['lr']
             )
             store.add_epoch(epoch_metric)
+            # Debug: 验证数据是否正确存储
+            print(f"[DEBUG] Added epoch metric for task {task_name}, epoch {global_epoch}")
+            print(f"[DEBUG] Store has {len(store.get_history_for_task(task_name))} epochs for this task")
+            print(f"[DEBUG] Flat history has {len(store.get_flat_epoch_history())} total epochs")
 
         console_logger.on_epoch_end(store)
         ckpt_saver.save(global_epoch, model, optimizer, scheduler, store)
