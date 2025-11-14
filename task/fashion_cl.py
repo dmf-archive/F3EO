@@ -11,13 +11,18 @@ import os
 from .base import BaseTask
 from utils.download import resumable_download
 
-class MnistClTask(BaseTask):
+class FashionClTask(BaseTask):
     def __init__(self, config: dict[str, Any]):
         super().__init__(config)
         self.batch_size = config["data"]["batch_size"]
         self.num_workers = config["data"]["num_workers"]
         self.num_classes = 10
-        self.fashion_test_loader = self._get_fashion_test_loader()
+        
+        self.learning_shock = None
+        self._is_first_step = True
+        
+        # We need a handle to the MNIST test set to measure forgetting
+        self.mnist_test_loader = self._get_mnist_test_loader()
 
     def _get_transform(self):
         return transforms.Compose([
@@ -30,11 +35,11 @@ class MnistClTask(BaseTask):
             dataset, batch_size=self.batch_size, shuffle=shuffle,
             num_workers=self.num_workers, pin_memory=True, drop_last=False
         )
-
-    def _get_fashion_test_loader(self) -> DataLoader:
+        
+    def _get_mnist_test_loader(self) -> DataLoader:
         transform = self._get_transform()
-        fashion_test = datasets.FashionMNIST('./data', train=False, download=True, transform=transform)
-        return self._build_dataloader(fashion_test, shuffle=False)
+        mnist_test = datasets.MNIST('./data', train=False, download=True, transform=transform)
+        return self._build_dataloader(mnist_test, shuffle=False)
 
     def get_dataloaders(self) -> Tuple[DataLoader, DataLoader]:
         def patched_download_and_extract_archive(url, download_root, filename, md5):
@@ -49,21 +54,20 @@ class MnistClTask(BaseTask):
 
         transform = self._get_transform()
         
-        train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
-        test_dataset = datasets.MNIST('./data', train=False, transform=transform)
+        train_dataset = datasets.FashionMNIST('./data', train=True, download=True, transform=transform)
+        test_dataset = datasets.FashionMNIST('./data', train=False, transform=transform)
         
-        # The trainer expects a single test_loader, but we will use the one we hold internally for full evaluation
         return self._build_dataloader(train_dataset, shuffle=True), self._build_dataloader(test_dataset, shuffle=False)
 
     def get_model(self) -> nn.Module:
-        from model.resnet_mnist import ResNet18_mnist
-        return ResNet18_mnist(num_classes=self.num_classes)
+        # This task will reuse the model from the previous task, so this method shouldn't be called by the trainer.
+        raise NotImplementedError("FashionClTask reuses the model and does not create a new one.")
 
     def get_criterion(self) -> nn.Module:
         return nn.CrossEntropyLoss()
         
     def get_param_groups(self, model: nn.Module) -> list:
-        # FOG parameter groups must be consistent across all tasks
+        # FOG parameter groups
         hidden_weights = [p for n, p in model.named_parameters() if p.ndim >= 2 and 'embed' not in n]
         others = [p for n, p in model.named_parameters() if p.ndim < 2 or 'embed' in n]
         return [
@@ -81,6 +85,10 @@ class MnistClTask(BaseTask):
         logits = model(data)
         loss = criterion(logits, target)
         
+        if self._is_first_step:
+            self.learning_shock = loss.item()
+            self._is_first_step = False
+        
         loss.backward(create_graph=needs_second_order)
         optimizer.step()
 
@@ -90,26 +98,11 @@ class MnistClTask(BaseTask):
                        criterion: nn.Module, device: torch.device) -> Dict[str, float]:
         model.eval()
         results = {}
-
-        # 1. Evaluate on MNIST (its own test set, passed by trainer)
-        mnist_loss, mnist_correct, mnist_total = 0.0, 0, 0
-        with torch.no_grad():
-            for data, target in test_loader:
-                data, target = data.to(device), target.to(device)
-                logits = model(data)
-                loss = criterion(logits, target)
-                mnist_loss += loss.item()
-                _, predicted = logits.max(1)
-                mnist_total += target.size(0)
-                mnist_correct += predicted.eq(target).sum().item()
         
-        results['mnist_accuracy'] = 100.0 * mnist_correct / mnist_total
-        results['mnist_loss'] = mnist_loss / len(test_loader)
-
-        # 2. Evaluate on FashionMNIST to see interference
+        # 1. Validate on FashionMNIST (its own test set, passed by trainer)
         fashion_loss, fashion_correct, fashion_total = 0.0, 0, 0
         with torch.no_grad():
-            for data, target in self.fashion_test_loader:
+            for data, target in test_loader:
                 data, target = data.to(device), target.to(device)
                 logits = model(data)
                 loss = criterion(logits, target)
@@ -119,9 +112,28 @@ class MnistClTask(BaseTask):
                 fashion_correct += predicted.eq(target).sum().item()
         
         results['fashion_accuracy'] = 100.0 * fashion_correct / fashion_total
-        results['fashion_loss'] = fashion_loss / len(self.fashion_test_loader)
+        results['fashion_loss'] = fashion_loss / len(test_loader)
         
-        # Add placeholder for learning_shock to maintain consistent columns
-        results['learning_shock'] = None
+        # 2. Validate on MNIST to measure forgetting
+        mnist_loss, mnist_correct, mnist_total = 0.0, 0, 0
+        with torch.no_grad():
+            for data, target in self.mnist_test_loader:
+                data, target = data.to(device), target.to(device)
+                logits = model(data)
+                loss = criterion(logits, target)
+                mnist_loss += loss.item()
+                _, predicted = logits.max(1)
+                mnist_total += target.size(0)
+                mnist_correct += predicted.eq(target).sum().item()
+
+        results['mnist_accuracy'] = 100.0 * mnist_correct / mnist_total
+        results['mnist_loss'] = mnist_loss / len(self.mnist_test_loader)
+        
+        # 3. Report learning shock if it was captured
+        if self.learning_shock is not None:
+            results['learning_shock'] = self.learning_shock
+            self.learning_shock = None
+        else:
+            results['learning_shock'] = None
 
         return results

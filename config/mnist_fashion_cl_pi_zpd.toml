@@ -1,0 +1,25 @@
+[experiment]
+tasks = ["mnist_fashion_cl"]
+seed = 42
+device = "cuda"
+
+[model]
+arch = "resnet18_mnist"
+num_classes = 10
+
+[data]
+batch_size = 64
+num_workers = 2
+
+[optimizer]
+name = "PI_ZPD"
+lr = 0.02
+damping = 0.001
+muon_momentum = 0.95
+stat_decay = 0.95
+beta = 1.0
+
+[train]
+epochs = 10
+log_every = 10
+ckpt_every = 5

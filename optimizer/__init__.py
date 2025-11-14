@@ -3,13 +3,14 @@ from dataclasses import dataclass
 import torch
 
 from .ada_hessian import Adahessian
-from .adamw_pi import AdamW_PI
 from .diag_fog import DiagFOG
 from .diag_kfac import DiagKFACOptimizer
 from .diag_kfac_muon import DiagKFACMuonOptimizer
+from .fiena_fog import FIENA_FOG
 from .fog import FOG
 from .kfac import KFACOptimizer
 from .muon import SingleDeviceMuon
+from .pi_zpd import PI_ZPD
 
 
 @dataclass
@@ -29,7 +30,8 @@ OPTIMIZER_REGISTRY: dict[str, OptimizerMetadata] = {
     "DiagKFAC": OptimizerMetadata(cls=DiagKFACOptimizer, requires_model=True),
     "DiagKFACMuon": OptimizerMetadata(cls=DiagKFACMuonOptimizer, requires_model=True),
     "DiagFOG": OptimizerMetadata(cls=DiagFOG, requires_model=True, expects_param_groups=True),
-    "AdamW_PI": OptimizerMetadata(cls=AdamW_PI),
+    "PI_ZPD": OptimizerMetadata(cls=PI_ZPD, requires_model=True, expects_param_groups=True),
+    "FIENA_FOG": OptimizerMetadata(cls=FIENA_FOG, requires_model=True, requires_second_order=True),
 }
 
 
@@ -46,7 +48,7 @@ def get_optimizer(name: str, params, **config):
     meta = OPTIMIZER_REGISTRY[name]
     tags = {
         "requires_second_order": meta.requires_second_order,
-        "accepts_pi_signal": name in ["AdamW_PI"], # Simplified PI logic
+        "accepts_pi_signal": name in ["PI_ZPD", "FIENA_FOG"],
     }
 
     opt_config = config.copy()

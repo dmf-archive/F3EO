@@ -21,7 +21,7 @@ def get_task_class(task_name: str):
     try:
         module = importlib.import_module(f"task.{task_name}")
         # e.g., Cifar10Task, Wikitext2Task
-        task_class_name = f"{task_name[0].upper()}{task_name[1:]}Task"
+        task_class_name = "".join(part.capitalize() for part in task_name.split('_')) + "Task"
         return getattr(module, task_class_name)
     except (ImportError, AttributeError) as e:
         print(f"Error loading task module '{task_name}': {e}")
