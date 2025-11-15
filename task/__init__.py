@@ -1,7 +1,16 @@
-# 任务模块初始化
-from .cifar10 import Cifar10Task
-from .wikitext2 import Wikitext2Task
-from .mnist_cl import MnistClTask
-from .fashion_cl import FashionClTask
+import importlib
+from typing import TYPE_CHECKING
 
-__all__ = ['Cifar10Task', 'Wikitext2Task', 'MnistClTask', 'FashionClTask']
+if TYPE_CHECKING:
+    from .base import Task
+
+
+def get_task(name: str, config: dict) -> "Task":
+    """Factory function to get a task instance by name."""
+    try:
+        module = importlib.import_module(f"task.{name}")
+        task_class_name = "".join(part.capitalize() for part in name.split('_')) + "Task"
+        task_class = getattr(module, task_class_name)
+        return task_class(config)
+    except (ImportError, AttributeError) as e:
+        raise ImportError(f"Could not load task '{name}'. Error: {e}") from e

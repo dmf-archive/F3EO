@@ -45,31 +45,6 @@ python -m scripts/train.py --config config/cifar10.toml
 
 2. **在工厂函数中注册**: 打开 [`optimizer/__init__.py`](optimizer/__init__.py)，在 `get_optimizer` 工厂函数中，为你的新优化器添加一个 `elif` 分支，用于导入和实例化它。
 
-   ```python
-   # optimizer/__init__.py
-
-   ...
-   elif name == "MyOptimizer":
-       from .my_optimizer import MyOptimizer
-       opt = MyOptimizer(params, **config)
-   ...
-   ```
-
-3. **注册模型依赖 (如需)**: 如果你的优化器（特别是 Fisher/KFAC 类）在初始化时需要整个 `model` 实例（而不仅仅是 `params`），则必须在 [`scripts/train.py`](scripts/train.py) 的 `create_optimizer` 函数中进行注册。
-
-   ```python
-   # scripts/train.py
-
-   def create_optimizer(model, config):
-       ...
-       # 将你的优化器名称添加到这个列表中
-       if opt_name in ["AdaFisher", "FOG", "KFAC", "DiagKFAC", "MyOptimizer"]:
-           opt_config["model"] = model
-       return get_optimizer(opt_name, model.parameters(), **opt_config)
-   ```
-
-> **架构注记**: 第 3 步是一个临时性的设计，它将特定优化器的逻辑耦合到了训练脚本中。未来应考虑重构，例如通过在 `get_optimizer` 的返回值中添加一个 `needs_model` 标签，来消除这种硬编码依赖。
-
 ---
 
 ## **重构计划 v2.0：高内聚、低耦合的训练管线**
