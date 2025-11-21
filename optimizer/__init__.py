@@ -38,6 +38,26 @@ def _create_muon_optimizer(params: list[dict], **config) -> tuple[torch.optim.Op
     optimizer = SingleDeviceMuonWithAuxAdam(muon_groups)
     return optimizer, {}, None
 
+def _create_nuclear_muon_optimizer(params: list[dict], **config) -> tuple[torch.optim.Optimizer, dict, None]:
+    from .nuclear_muon import SingleDeviceNuclearMuonWithAuxAdam
+
+    # EXACTLY replicate Muon's parameter grouping logic, just change the flag name
+    nuclear_groups = []
+    for group in params:
+        if group.get('use_diag_hadron', True):  # Same logic as Muon
+            nuclear_groups.append({
+                'params': group['params'], 'use_nuclear_muon': True,
+                'lr': config.get('lr', 0.02), 'momentum': config.get('momentum', 0.95),
+                'weight_decay': config.get('weight_decay', 0.1)
+            })
+        else:
+            nuclear_groups.append({
+                'params': group['params'], 'use_nuclear_muon': False, 'lr': 1e-4,
+                'betas': (0.9, 0.95), 'eps': 1e-10,
+                'weight_decay': config.get('weight_decay', 0.1)
+            })
+    optimizer = SingleDeviceNuclearMuonWithAuxAdam(nuclear_groups)
+    return optimizer, {}, None
 
 def _configure_aux_adamw_groups(params: list[dict], config: dict):
     adam_lr = config.pop("adam_lr", 1e-4)
@@ -59,6 +79,7 @@ OPTIMIZER_REGISTRY: dict[str, OptimizerMetadata | Callable] = {
     "DiagKFAC": OptimizerMetadata(cls_name="DiagKFACOptimizer", module_name="diag_kfac", requires_model=True, expects_param_groups=True),
     "DiagKFACMuon": OptimizerMetadata(cls_name="DiagKFACMuonOptimizer", module_name="diag_kfac_muon", requires_model=True, constructor_takes_model=True),
     "DiagHadron": OptimizerMetadata(cls_name="DiagHadron", module_name="diag_hadron", requires_model=True, expects_param_groups=True),
+    "NuclearMuon": _create_nuclear_muon_optimizer,
     "SSK": OptimizerMetadata(cls_name="SSK", module_name="ssk", requires_model=True, constructor_takes_model=True),
 }
 

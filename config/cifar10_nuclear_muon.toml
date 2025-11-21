@@ -1,0 +1,32 @@
+[experiment]
+tasks = ["cifar10"]
+seed = 42
+device = "cuda:0"
+
+[model]
+arch = "resnet18_cifar"
+num_classes = 10
+
+[data]
+batch_size = 256
+num_workers = 0
+aug = true
+cutout = true
+n_holes = 1
+cutout_length = 16
+
+[optimizer]
+name = "NuclearMuon"
+lr = 0.02
+weight_decay = 0.0005
+momentum = 0.95
+nuclear_lambda = 0.01
+
+[scheduler]
+name = "cosine"
+T_max = 200
+
+[train]
+epochs = 10
+log_every = 10
+ckpt_every = 10
