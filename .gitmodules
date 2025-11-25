@@ -10,3 +10,6 @@
 [submodule "ref/muon"]
 	path = ref/muon
 	url = https://github.com/KellerJordan/Muon.git
+[submodule "ref/shampoo"]
+	path = ref/shampoo
+	url = https://github.com/facebookresearch/optimizers.git

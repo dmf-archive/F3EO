@@ -45,7 +45,7 @@ last_updated: "2025-11-16"
 ## 环境管理
 
 - **REQ-301**: 依赖必须用`uv add/remove`管理，`pyproject.toml`是唯一来源
-- **REQ-302**: 禁止`cd`到子文件夹启动，代码须支持`python -m exp.<name>`与相对导入
+- **REQ-302**: 禁止`cd`到子文件夹启动，代码须支持`python -m script.train` 启动与相对导入
 - **GUD-301**: `uv add`失败时可用`uv pip install --no-deps --find-links`临时方案
 - **GUD-302**: 研究底层库直接查阅`.venv/Lib/site-packages`源码
 - **GUD-303**: 不确定上游功能时用 DeepWiki `ask_question`
@@ -67,6 +67,7 @@ last_updated: "2025-11-16"
 ## 调试与异常
 
 - **REQ-402**: 严禁训练流程使用`try...except`静默捕获异常（数据加载/用户中断除外），研究原型必须**Just in Fail**
+- **REQ-404**: 所有 `python -m` 启动命令必须使用点分隔符（`.`）指代模块路径，例如 `python -m scripts.train`。严禁使用斜杠（`/`）或反斜杠（`\`）作为模块路径分隔符。
 
 ## 内存与性能
 
