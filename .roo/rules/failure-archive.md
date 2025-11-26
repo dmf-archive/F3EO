@@ -66,6 +66,7 @@
 | **AdaF3E** | `Δθ = -η·m / (√v + α·H·g)` | 将三阶项作为预处理器，但仍是 Hessian-Fisher 错配。 | 理论缺陷 |
 | **F3E-Warp** | `g_update = –2Hg` | 缺少梯度项`g`作为锚点，陷入“零梯度-随机准确率”死区。 | 假设证伪 |
 | **RSA-NG** | Ricci 流平滑 Fisher 流形 | 引入对度量张量的二阶微分，需 `O(d⁴)` 的四阶矩，计算不可行。 | 计算灾难 |
+| **SRM (Spectral Residual Momentum)** | 谱残差阻尼动量 | 信号误读：谱残差是 Muon 发挥作用的诊断信号而非控制信号，阻尼动量导致优化停滞。 | 实验失败 |
 
 ## 6. 工程教训 (Engineering Lessons)
 

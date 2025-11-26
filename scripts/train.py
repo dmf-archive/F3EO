@@ -92,6 +92,7 @@ def train(config: dict[str, Any], config_name: str):
         config=config
     )
 
+    # Pass optimizer to fit method to allow access to internal diagnostics
     trainer.fit(
         tasks=tasks,
         train_loaders=train_loaders,

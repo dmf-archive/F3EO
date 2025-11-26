@@ -123,11 +123,15 @@ class Trainer:
                     if avg_grad_norm is not None:
                         _, avg_pi_obj = pi_calculator.calculate_pi(torch.tensor(avg_entropy), avg_grad_norm)
 
+                # Collect diagnostics from optimizer if available
+                diagnostics = getattr(self.optimizer, 'diagnostics', None)
+
                 epoch_metric = EpochMetric(
                     task_name=task_name, task_epoch=task_epoch, global_epoch=global_epoch,
                     avg_train_loss=avg_train_loss, task_metrics=task_metrics,
                     avg_pi_obj=avg_pi_obj, avg_entropy=avg_entropy,
                     grad_norm=avg_grad_norm, learning_rate=self.optimizer.param_groups[0]['lr'],
+                    diagnostics=diagnostics,
                     epoch_time_s=epoch_time, peak_gpu_mem_mb=peak_gpu_mem_mb
                 )
                 self.store.add_epoch(epoch_metric)

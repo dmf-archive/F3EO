@@ -30,6 +30,7 @@ class EpochMetric:
     avg_entropy: float | None
     grad_norm: float | None
     learning_rate: float
+    diagnostics: dict[str, Any] | None = None
     epoch_time_s: float | None = None
     peak_gpu_mem_mb: float | None = None
     timestamp: float = field(default_factory=time.time, init=False)

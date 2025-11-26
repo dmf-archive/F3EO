@@ -27,12 +27,14 @@ class Hadron(KFACOptimizer):
                  TCov=10,
                  TInv=100,
                  batch_averaged=True,
-                 muon_momentum=0.95):
+                 muon_momentum=0.95,
+                 srm_gamma=0.0):
 
         super().__init__(model, lr, momentum, stat_decay, damping, kl_clip,
                          weight_decay, TCov, TInv, batch_averaged)
 
         self.muon_momentum = muon_momentum
+        self.srm_gamma = srm_gamma
         for group in self.param_groups:
             for p in group['params']:
                 if p.requires_grad:
@@ -71,20 +73,27 @@ class Hadron(KFACOptimizer):
             g_nat_w, g_nat_b = natural_grads[m][0], natural_grads[m][1] if len(natural_grads[m]) > 1 else None
 
             state_w = self.state[m.weight]
-            hadron_update_w = muon_update(
+            hadron_update_w, rho_w = muon_update(
                 g_nat_w,
                 state_w['muon_momentum_buffer'],
-                beta=self.muon_momentum
+                beta=self.muon_momentum,
+                srm_gamma=self.srm_gamma
             )
+            
+            # Store diagnostic
+            if not hasattr(self, 'diagnostics'):
+                self.diagnostics = {}
+            self.diagnostics[f"{m.__class__.__name__}_weight_rho"] = rho_w
 
             hadron_update_b = None
             if g_nat_b is not None and m.bias is not None:
                 state_b = self.state[m.bias]
                 # Bias terms are 1D, muon_update handles them by skipping orthogonalization
-                hadron_update_b = muon_update(
+                hadron_update_b, _ = muon_update(
                     g_nat_b,
                     state_b['muon_momentum_buffer'],
-                    beta=self.muon_momentum
+                    beta=self.muon_momentum,
+                    srm_gamma=self.srm_gamma
                 )
 
             final_updates[m] = [hadron_update_w, hadron_update_b]

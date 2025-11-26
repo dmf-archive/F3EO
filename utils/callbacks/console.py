@@ -107,6 +107,12 @@ class ConsoleLogger(Callback):
             pi_str = f"{getattr(last_metric, 'avg_pi', 'N/A')}"
         self.console.print(f"[dim]LR: {last_metric.learning_rate:.6f} | PI: {pi_str} | Grad: {last_metric.grad_norm:.4f}[/dim]")
 
+        # Print diagnostics if available
+        if hasattr(last_metric, 'diagnostics') and last_metric.diagnostics:
+            diag_str = " | ".join([f"{k}: {v:.4f}" for k, v in last_metric.diagnostics.items() if isinstance(v, float)])
+            if diag_str:
+                self.console.print(f"[dim cyan]Diagnostics: {diag_str}[/dim cyan]")
+
     def on_step_begin(self, step: int, **kwargs):
         pass
 

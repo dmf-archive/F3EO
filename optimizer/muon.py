@@ -31,17 +31,52 @@ def zeropower_via_newtonschulz5(G, steps: int):
     return X
 
 
-def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True):
+def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True, srm_gamma=0.0):
+    # 1. Standard Momentum Update
     momentum.lerp_(grad, 1 - beta)
     update = grad.lerp_(momentum, beta) if nesterov else momentum
+    
+    # Store raw update for SRM calculation
+    update_raw = update.clone() if update.ndim >= 2 else None
+
     if update.ndim == 4: # for the case of conv filters
         update = update.view(update.size(0), -1)
+        if update_raw is not None:
+            update_raw = update_raw.view(update_raw.size(0), -1)
     elif update.ndim == 1:
         # Skip orthogonalization for 1D parameters (biases, gains, etc.)
-        return update
+        return update, 0.0
+
+    # 2. Orthogonalization (Spectral Flattening)
     update = zeropower_via_newtonschulz5(update, steps=ns_steps)
+    
+    # 3. SRM: Spectral Residual Calculation & Dynamic Damping
+    spectral_residual = 0.0
+    if update_raw is not None:
+        # Calculate normalized spectral residual: rho = || U_raw_aligned - U_ortho || / || U_ortho ||
+        norm_raw = update_raw.norm() + 1e-6
+        norm_ortho = update.norm() + 1e-6
+        
+        # Align scales for pure shape comparison
+        update_raw_aligned = update_raw * (norm_ortho / norm_raw)
+        spectral_residual = (update_raw_aligned - update).norm().item() / norm_ortho.item()
+        
+        # Apply SRM Damping if gamma > 0
+        # beta_eff = beta * (1 - tanh(gamma * rho))
+        # Note: We are modifying the *next* step's momentum, or the *current* update?
+        # Standard SRM theory suggests modifying the momentum buffer for the *next* step,
+        # OR scaling the current update.
+        # But 'momentum' tensor is already updated in step 1.
+        # Let's apply a retroactive correction to the momentum buffer to reflect the "uncertainty".
+        if srm_gamma > 0:
+            damping_factor = 1.0 - torch.tanh(torch.tensor(srm_gamma * spectral_residual)).item()
+            # Dampen the momentum buffer for future steps
+            momentum.mul_(damping_factor)
+
+    # 4. Final Scaling
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
-    return update
+    
+    return update, spectral_residual
 
 
 class Muon(torch.optim.Optimizer):
@@ -91,7 +126,8 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum_buffer"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"])
+                    srm_gamma = group.get("srm_gamma", 0.0)
+                    update, _ = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"], srm_gamma=srm_gamma)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update.reshape(p.shape), alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + dist.get_world_size()], params_pad[base_i + dist.get_rank()])
@@ -123,7 +159,9 @@ class SingleDeviceMuon(torch.optim.Optimizer):
                 state = self.state[p]
                 if len(state) == 0:
                     state["momentum_buffer"] = torch.zeros_like(p)
-                update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"])
+                # Use srm_gamma if present in group, else 0.0
+                srm_gamma = group.get("srm_gamma", 0.0)
+                update, _ = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"], srm_gamma=srm_gamma)
                 p.mul_(1 - group["lr"] * group["weight_decay"])
                 p.add_(update.reshape(p.shape), alpha=-group["lr"])
 
@@ -205,7 +243,8 @@ class MuonWithAuxAdam(torch.optim.Optimizer):
                         state = self.state[p]
                         if len(state) == 0:
                             state["momentum_buffer"] = torch.zeros_like(p)
-                        update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"])
+                        srm_gamma = group.get("srm_gamma", 0.0)
+                        update, _ = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"], srm_gamma=srm_gamma)
                         p.mul_(1 - group["lr"] * group["weight_decay"])
                         p.add_(update.reshape(p.shape), alpha=-group["lr"])
                     dist.all_gather(params_pad[base_i:base_i + dist.get_world_size()], params_pad[base_i + dist.get_rank()])
@@ -267,7 +306,8 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum_buffer"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"])
+                    srm_gamma = group.get("srm_gamma", 0.0)
+                    update, _ = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"], srm_gamma=srm_gamma)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update.reshape(p.shape), alpha=-group["lr"])
             else:
