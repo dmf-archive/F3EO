@@ -26,12 +26,8 @@ OPTIMIZER_REGISTRY: dict[str, OptimizerMetadata] = {
     "DiagHadron": OptimizerMetadata(cls_name="DiagHadron", module_name="diag_hadron", requires_model=True, expects_param_groups=True),
     "BlockHadron": OptimizerMetadata(cls_name="BlockHadron", module_name="block_hadron", requires_model=True, expects_param_groups=True),
     "DiagHadronOEWC": OptimizerMetadata(cls_name="DiagHadronOEWC", module_name="diag_hadron_oewc", requires_model=True, expects_param_groups=True),
-    "AdaRC": OptimizerMetadata(cls_name="AdaRC", module_name="adarc", requires_model=True, constructor_takes_model=True),
-    "SSK": OptimizerMetadata(cls_name="SSK", module_name="ssk", requires_model=True, constructor_takes_model=True),
-    "APOG": OptimizerMetadata(cls_name="APOG", module_name="apog", requires_model=True, constructor_takes_model=True),
-    "KAPOG": OptimizerMetadata(cls_name="KAPOG", module_name="kapog", requires_model=True, constructor_takes_model=True),
-    "DiagKAPOG": OptimizerMetadata(cls_name="DiagKAPOG", module_name="diag_kapog", requires_model=True, expects_param_groups=True),
-    "RMSoun": OptimizerMetadata(cls_name="RMSoun", module_name="rmsoun", expects_param_groups=True),
+    "RMSuon": OptimizerMetadata(cls_name="RMSuon", module_name="rmsuon", expects_param_groups=True),
+    "LazyRMSuon": OptimizerMetadata(cls_name="LazyRMSuon", module_name="lazy_rmsuon", expects_param_groups=True),
 }
 
 def _import_optimizer(module_name: str, class_name: str) -> type[torch.optim.Optimizer]:
@@ -40,77 +36,65 @@ def _import_optimizer(module_name: str, class_name: str) -> type[torch.optim.Opt
     module = import_module(f".{module_name}", package="optimizer")
     return getattr(module, class_name)
 
-def _configure_aux_adamw_groups(params: list[dict], config: dict):
-    adam_lr = config.get("adam_lr", 1e-4)
-    adam_wd = config.get("adam_weight_decay", 0.01)
-    adam_betas = config.get("adam_betas", (0.9, 0.95))
-    
-    # Check if this is for Muon optimizer by looking for any use_muon flags
-    has_muon_groups = any(group.get('use_muon', False) for group in params)
-    
-    for group in params:
-        # Ensure all groups have use_muon flag for Muon compatibility
-        if has_muon_groups:
-            group.setdefault('use_muon', False)
+def _create_specialized_param_groups(
+    params: list[torch.nn.Parameter],
+    optimizer_name: str,
+    config: dict
+) -> list[dict]:
+    """
+    Automatically splits parameters into groups for specialized optimizers
+    like Muon, RMSuon, etc., and a default AdamW group for the rest.
+    """
+    special_params = []
+    adamw_params = []
+
+    # Define the condition for a parameter to be handled by the special optimizer
+    if optimizer_name in ["Muon", "RMSuon", "LazyRMSuon"]:
+        is_special_param = lambda p: p.ndim >= 2 and max(p.shape) < 10000
+        special_group_flag = 'is_rmsuon_group' if 'RMSuon' in optimizer_name else 'use_muon'
+    else:
+        # Extend with other optimizer conditions if needed
+        return [{'params': params}]
+
+    for p in params:
+        if p.requires_grad:
+            if is_special_param(p):
+                special_params.append(p)
+            else:
+                adamw_params.append(p)
+
+    param_groups = []
+    if special_params:
+        special_config = {
+            'params': special_params,
+            special_group_flag: True,
+            'lr': config.get("lr", 1e-3),
+            'weight_decay': config.get("weight_decay", 0.1),
+        }
+        if optimizer_name == "Muon":
+            special_config['momentum'] = config.get("momentum", 0.95)
+        elif "RMSuon" in optimizer_name:
+            special_config['betas'] = config.get("betas", (0.9, 0.999))
+            special_config['eps'] = config.get("eps", 1e-8)
+            special_config['ns_steps'] = config.get("ns_steps", 5)
+            if optimizer_name == "LazyRMSuon":
+                special_config['energy_sync_every'] = config.get("energy_sync_every", 10)
         
-        # Configure based on optimizer type
-        if group.get('use_muon', False):
-            # This is a Muon group, set Muon-specific defaults
-            group.setdefault('lr', config.get("lr", 0.02))
-            group.setdefault('weight_decay', config.get("weight_decay", 0))
-            group.setdefault('momentum', config.get("momentum", 0.95))
-            
-            # For Muon, clean up the group to only have required keys
-            clean_group = {
-                'params': group['params'],
-                'use_muon': True,
-                'lr': group['lr'],
-                'weight_decay': group['weight_decay'],
-                'momentum': group['momentum']
-            }
-            # Replace the original group
-            group.clear()
-            group.update(clean_group)
-            
-        elif group.get('use_block_hadron', False):
-            # This is a BlockHadron group, set BlockHadron-specific defaults
-            group.setdefault('lr', config.get("lr", 1e-3))
-            group.setdefault('weight_decay', config.get("weight_decay", 0))
-            group.setdefault('damping', config.get("damping", 0.001))
-            group.setdefault('block_size', config.get("block_size", 64))
+        param_groups.append(special_config)
 
-            # For BlockHadron, clean up the group to only have required keys
-            clean_group = {
-                'params': group['params'],
-                'use_block_hadron': True,
-                'lr': group['lr'],
-                'weight_decay': group['weight_decay'],
-                'damping': group['damping'],
-                'block_size': group['block_size'],
-            }
-            # Replace the original group
-            group.clear()
-            group.update(clean_group)
+    if adamw_params:
+        adam_config = {
+            'params': adamw_params,
+            special_group_flag: False,
+            'lr': config.get("adam_lr", config.get("lr", 1e-3)),
+            'betas': config.get("adam_betas", (0.9, 0.999)),
+            'eps': config.get("adam_eps", 1e-8),
+            'weight_decay': config.get("adam_weight_decay", 0.01),
+        }
+        param_groups.append(adam_config)
+    
+    return param_groups
 
-        elif not group.get('use_diag_hadron', False):
-            # This is a regular AdamW group (or default for Muon)
-            group.setdefault('lr', adam_lr)
-            group.setdefault('weight_decay', adam_wd)
-            group.setdefault('betas', adam_betas)
-            
-            # For AdamW groups in Muon, clean up to only have required keys
-            if has_muon_groups:
-                clean_group = {
-                    'params': group['params'],
-                    'use_muon': False,
-                    'lr': group['lr'],
-                    'weight_decay': group['weight_decay'],
-                    'betas': group['betas'],
-                    'eps': group.get('eps', 1e-10)
-                }
-                # Replace the original group
-                group.clear()
-                group.update(clean_group)
 
 def get_optimizer(name: str, params: list[dict], **config) -> tuple[torch.optim.Optimizer, dict, dict | None]:
     if name not in OPTIMIZER_REGISTRY:
@@ -125,11 +109,17 @@ def get_optimizer(name: str, params: list[dict], **config) -> tuple[torch.optim.
         "requires_loss_for_step": meta.requires_loss_for_step,
         "accepts_pi_signal": name in ["PI_ZPD", "FIENA_FOG"],
     }
+    
+    # If optimizer expects param groups, we might need to auto-create them
+    if meta.expects_param_groups and name in ["Muon", "RMSuon", "LazyRMSuon"]:
+        # Flatten the initial param list
+        all_params = [p for group in params for p in group['params']]
+        init_params = _create_specialized_param_groups(all_params, name, opt_config)
+    elif meta.expects_param_groups:
+        init_params = params
+    else:
+        init_params = next(iter(params))['params']
 
-    if name in ["DiagHadron", "BlockHadron", "DiagKFAC", "Hadron", "SSK", "DiagHadronOEWC", "HadronOEWC", "DiagKAPOG", "Muon", "RMSoun"]:
-        _configure_aux_adamw_groups(params, opt_config)
-
-    init_params = params if meta.expects_param_groups else next(iter(params))['params']
 
     if meta.requires_model and "model" not in opt_config:
         raise ValueError(f"Optimizer '{name}' requires a 'model' instance.")
@@ -140,22 +130,13 @@ def get_optimizer(name: str, params: list[dict], **config) -> tuple[torch.optim.
     else:
         if not meta.requires_model:
             opt_config.pop('model', None)
-        # For optimizers that expect param_groups, remove top-level params that are set in groups
-        if meta.expects_param_groups and name in ["Muon", "BlockHadron", "RMSoun"]:
-            # Remove optimizer-specific params that should be in param_groups
-            opt_config.pop('lr', None)
-            opt_config.pop('weight_decay', None)
-            if name == "Muon":
-                opt_config.pop('momentum', None)
-            elif name == "BlockHadron":
-                opt_config.pop('damping', None)
-                opt_config.pop('block_size', None)
-                opt_config.pop('momentum', None) # BlockHadron does not use momentum
-            # Also remove AdamW-related params that are only for _configure_aux_adamw_groups
-            opt_config.pop('adam_lr', None)
-            opt_config.pop('adam_weight_decay', None)
-            opt_config.pop('adam_betas', None)
-        optimizer = OptimizerClass(init_params, **opt_config)
+        
+        # Clean up config for optimizers that get structured groups
+        if meta.expects_param_groups and name in ["Muon", "RMSuon", "LazyRMSuon"]:
+             optimizer = OptimizerClass(init_params)
+        else:
+             optimizer = OptimizerClass(init_params, **opt_config)
+
 
     pi_config = None
     if tags["accepts_pi_signal"]:

@@ -5,22 +5,11 @@ import torch.optim as optim
 
 from .kfac_utils import update_running_stat
 
-# Import the actual Muon orthogonalization function
 from .muon import zeropower_via_newtonschulz5
 
 
 class DiagHadron(optim.Optimizer):
-    """
-    DiagFOG: A lightweight hybrid of DiagKFAC and Muon.
-
-    This optimizer replaces the memory-intensive KFAC component in FOG with a diagonal
-    approximation of the Fisher Information Matrix, while retaining the Muon component
-    for structural updates. It aims to achieve a balance between the efficiency of
-    diagonal methods and the robustness of structural gradients.
-    """
-
     def __init__(self, param_groups, model=None, lr=1e-3, stat_decay=0.95, TCov=10, TInv=100, muon_momentum=0.95, kl_clip=0.001, **kwargs):
-        # Default AdamW values
         defaults = dict(lr=lr, betas=(0.9, 0.999), eps=1e-8, weight_decay=0)
         super().__init__(param_groups, defaults)
 
@@ -43,7 +32,6 @@ class DiagHadron(optim.Optimizer):
         self.known_modules = {'Linear', 'Conv2d'}
         self.modules = []
 
-        # Only prepare model if it's provided
         if self.model is not None:
             self._prepare_model()
 
@@ -52,7 +40,6 @@ class DiagHadron(optim.Optimizer):
 
     def _save_input(self, module, input):
         if torch.is_grad_enabled() and self.steps % self.TCov == 0:
-            # Diagonal approximation for activation covariance
             a = input[0].data
             a = a.reshape(-1, a.size(-1))
             if module.bias is not None:
@@ -64,7 +51,6 @@ class DiagHadron(optim.Optimizer):
 
     def _save_grad_output(self, module, grad_input, grad_output):
         if self.steps % self.TCov == 0:
-            # Diagonal approximation for gradient covariance
             g = grad_output[0].data
             g = g.reshape(-1, g.size(-1))
             gg_diag = (g * g).sum(dim=0)
@@ -90,14 +76,9 @@ class DiagHadron(optim.Optimizer):
         return p_grad_mat
 
     def _get_natural_grad(self, m, p_grad_mat, damping):
-        # p_grad_mat is of output_dim * input_dim
-        # F_inv = (A_inv x G_inv) where A and G are diagonal
-        # natural_grad = F_inv @ grad
         A_inv_diag = 1.0 / (self.m_aa[m] + damping)
         G_inv_diag = 1.0 / (self.m_gg[m] + damping)
 
-        # Kronecker product with diagonal matrices is equivalent to outer product
-        # and then element-wise multiplication with the gradient matrix.
         v = p_grad_mat * (G_inv_diag.unsqueeze(1) @ A_inv_diag.unsqueeze(0))
 
         if m.bias is not None:
@@ -128,26 +109,19 @@ class DiagHadron(optim.Optimizer):
                 m.bias.grad.data.mul_(nu)
 
     def _muon_update(self, grad, momentum_buffer):
-        """
-        Muon update for structural gradients.
-        """
         momentum_buffer.lerp_(grad, 1 - self.muon_momentum)
         update = grad.lerp_(momentum_buffer, self.muon_momentum)
-        if update.ndim == 4: # for the case of conv filters
+        if update.ndim == 4:
             update = update.view(update.size(0), -1)
         elif update.ndim == 1:
-            # Skip orthogonalization for 1D parameters (biases, gains, etc.)
             return update
-        # Perform the actual Newton-Schulz orthogonalization
         update = zeropower_via_newtonschulz5(update, steps=5)
-        # Apply the spectral norm scaling factor as in the original Muon
         update *= max(1, grad.size(-2) / grad.size(-1))**0.5
         return update
 
     def step(self, closure=None):
         for group in self.param_groups:
             if group.get('use_diag_hadron', False):
-                # --- DiagHadron step for this group ---
                 lr = group['lr']
                 damping = group.get('damping', 0.001)
                 weight_decay = group.get('weight_decay', 0)
@@ -177,7 +151,6 @@ class DiagHadron(optim.Optimizer):
                             muon_update = self._muon_update(stat_grad, state["muon_momentum_buffer"])
                             p.grad.data.copy_(muon_update.reshape(p.grad.data.size()))
 
-                # Final update for this DiagHadron group
                 for p in group['params']:
                     if p.grad is None:
                         continue
@@ -187,7 +160,6 @@ class DiagHadron(optim.Optimizer):
                     p.data.add_(d_p, alpha=-lr)
 
             else:
-                # --- AdamW step for this group ---
                 for p in group['params']:
                     if p.grad is None:
                         continue

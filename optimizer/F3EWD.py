@@ -39,14 +39,6 @@ class F3EWD(Optimizer):
         self.exp_avg_log_pi = 0.0
 
     def step(self, closure=None, pi_object=None):
-        """Performs a single optimization step.
-
-        Args:
-            closure: A closure that reevaluates the model and returns the loss.
-            pi_object: Optional external PI signal. If provided, it overrides
-                               the internal gamma calculation and is used directly
-                               for the exponential penalty.
-        """
         loss = None
         if closure is not None:
             with torch.enable_grad():
@@ -67,23 +59,17 @@ class F3EWD(Optimizer):
         if not grads:
             return loss
 
-        # Compute grad norm once to avoid O(N) redundancy
         grad_norm_sq = sum(g.pow(2).sum() for g in grads)
 
-        # --- PI-based modulation ---
-        # Use the externally provided pi_object for PI-based modulation
         multiplier = 1.0
         if pi_object is not None:
-            # Note: We use log_pi here which is -log(1-pi), so exp(log_pi) is 1/(1-pi)
             multiplier = torch.exp(torch.tensor(pi_object.log_pi)).item()
 
         adaptive_weight_decay = self.param_groups[0]['weight_decay'] * multiplier
         beta_multiplier = multiplier
-        # --- End of PI-based modulation ---
 
         meta_grads = torch.autograd.grad(grad_norm_sq, params_with_grad, retain_graph=False, allow_unused=True)
 
-        # --- 三阶梯度裁剪 ---
         clip_value = self.param_groups[0]['meta_grad_clip_norm']
         if clip_value > 0:
             total_norm = torch.sqrt(sum(torch.norm(g.detach(), 2).pow(2) for g in meta_grads if g is not None))
@@ -96,7 +82,6 @@ class F3EWD(Optimizer):
                     else:
                         clipped_meta_grads.append(None)
                 meta_grads = tuple(clipped_meta_grads)
-        # ---
 
         with torch.no_grad():
             param_idx = 0

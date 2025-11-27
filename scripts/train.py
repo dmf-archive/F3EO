@@ -55,7 +55,6 @@ def train(config: dict[str, Any], config_name: str):
     from task import get_task
     tasks = {name: get_task(name, config) for name in task_names}
 
-    # Assume single task for model and criterion creation
     main_task = tasks[task_names[0]]
     model = main_task.get_model().to(device)
     criterion = main_task.get_criterion()
@@ -92,20 +91,29 @@ def train(config: dict[str, Any], config_name: str):
         config=config
     )
 
-    # Pass optimizer to fit method to allow access to internal diagnostics
-    trainer.fit(
-        tasks=tasks,
-        train_loaders=train_loaders,
-        valid_loaders=valid_loaders,
-        scheduler=scheduler,
-        optimizer_tags=optimizer_tags,
-        pi_config=pi_config,
-        output_dir=str(output_dir)
-    )
+    if config["experiment"].get("profile", False):
+        from utils.profiler import profile_optimizer_step
+        profile_optimizer_step(
+            trainer=trainer,
+            tasks=tasks,
+            train_loaders=train_loaders,
+            output_dir=str(output_dir)
+        )
+    else:
+        trainer.fit(
+            tasks=tasks,
+            train_loaders=train_loaders,
+            valid_loaders=valid_loaders,
+            scheduler=scheduler,
+            optimizer_tags=optimizer_tags,
+            pi_config=pi_config,
+            output_dir=str(output_dir)
+        )
 
 def main():
     parser = argparse.ArgumentParser(description="Unified F3EO-Bench Training Framework")
-    parser.add_argument("--config", type=str, required=True, help="Path to TOML configuration file")
+    parser.add_argument("--config", type=str, required=True)
+    parser.add_argument("--profile", action="store_true", help="Run in profiling mode.")
     args = parser.parse_args()
 
     config_path = Path(args.config)
@@ -115,6 +123,10 @@ def main():
 
     config = load_config(config_path)
     config_name = config_path.stem
+    
+    if args.profile:
+        config["experiment"]["profile"] = True
+
     train(config, config_name)
 
 if __name__ == "__main__":

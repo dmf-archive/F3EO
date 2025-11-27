@@ -24,28 +24,15 @@ class BaseTask(ABC):
 
     @abstractmethod
     def get_param_groups(self, model: nn.Module) -> list[dict]:
-        """
-        Returns a list of parameter groups for the optimizer.
-        This allows tasks to define model-specific optimization strategies,
-        like applying different learning rates or weight decays to different layers.
-        """
         pass
 
     @abstractmethod
     def train_step(self, model: nn.Module, batch: Any, criterion: nn.Module,
                    optimizer: torch.optim.Optimizer, device: torch.device,
                    needs_second_order: bool, optimizer_handles_backward: bool) -> tuple[torch.Tensor, torch.Tensor, dict[str, float]]:
-        """
-        Performs a single training step.
-        Returns the model's output logits, the loss tensor, and a dictionary of step-specific metrics.
-        """
         pass
 
     @abstractmethod
     def validate_epoch(self, model: nn.Module, test_loader: DataLoader,
                        criterion: nn.Module, device: torch.device) -> dict[str, float]:
-        """
-        Performs a full validation epoch.
-        Returns a dictionary of metrics (e.g., {"loss": 0.5, "accuracy": 95.0}).
-        """
         pass

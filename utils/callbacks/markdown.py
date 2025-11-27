@@ -33,7 +33,6 @@ class MDLogger(Callback):
         pass
 
     def on_epoch_end(self, store: "MetricStore", **kwargs):
-        # Generate and save summary at each epoch for real-time monitoring
         epoch_history = store.get_flat_epoch_history()
         if not epoch_history:
             return
@@ -125,7 +124,6 @@ class MDLogger(Callback):
                 is_ppl = 'perplexity' in key
                 metrics = [e.task_metrics.metrics.get(key) for e in epoch_data if e.task_name == name and e.task_metrics.metrics.get(key) is not None]
                 if not metrics: continue
-                # Filter out None values for min/max
                 valid_metrics = [m for m in metrics if isinstance(m, float)]
                 best_val = min(valid_metrics) if is_ppl else max(valid_metrics) if valid_metrics else 0.0
                 summary.append(f"{name} {key.capitalize()}: {best_val:.2f}")

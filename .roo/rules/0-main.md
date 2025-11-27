@@ -1,5 +1,5 @@
 ---
-title: "Tiny-ONN Agent操作手册"
+title: "Agent操作手册"
 version: "latest"
 last_updated: "2025-11-16"
 ---
@@ -30,7 +30,7 @@ last_updated: "2025-11-16"
 
 ## 编码规范
 
-- **REQ-201**: 代码简洁自解释，**移除所有注释与 docstring**
+- **REQ-201**: 代码简洁自解释，**禁止所有注释与 docstring**，如果存在已有的注释，必须删除。
 - **REQ-202**: 完整类型标注，通过`ruff check . --fix`（`mypy .`可选）
 - **REQ-203**: 纯函数设计，零副作用，优先 PyTorch 张量并行
 - **REQ-204**: 文档公式用`unicode math`，禁止 LaTeX 块

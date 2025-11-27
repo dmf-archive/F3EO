@@ -11,23 +11,11 @@ from .base import BaseTask
 
 
 class Cutout:
-    """Randomly mask out one or more patches from an image.
-
-    Args:
-        n_holes (int): Number of patches to cut out of each image.
-        length (int): The length (in pixels) of each square patch.
-    """
     def __init__(self, n_holes, length):
         self.n_holes = n_holes
         self.length = length
 
     def __call__(self, img):
-        """
-        Args:
-            img (Tensor): Tensor image of size (C, H, W).
-        Returns:
-            Tensor: Image with n_holes of dimension length x length cut out of it.
-        """
         h = img.shape[1]
         w = img.shape[2]
 
@@ -64,13 +52,11 @@ class Cifar10Task(BaseTask):
             transforms.RandomHorizontalFlip(),
         ]
 
-        # 添加ToTensor和Normalize
         transform_train_list.extend([
             transforms.ToTensor(),
             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
         ])
 
-        # 根据配置添加cutout增强，在ToTensor和Normalize之后
         if self.config.get("data", {}).get("cutout", False):
             n_holes = self.config.get("data", {}).get("n_holes", 1)
             cutout_length = self.config.get("data", {}).get("cutout_length", 16)
@@ -109,27 +95,21 @@ class Cifar10Task(BaseTask):
     def get_criterion(self) -> nn.Module:
         return nn.CrossEntropyLoss()
     def get_param_groups(self, model: nn.Module) -> list[dict]:
-        # For Muon compatibility, we need to separate hidden weights from others
-        # This is a simplified version for ResNet-like architectures
         hidden_weights = []
         non_hidden_weights = []
         
         for name, param in model.named_parameters():
             if param.ndim >= 2 and any(layer in name for layer in ['conv', 'linear', 'fc']):
-                # These are likely hidden layer weights that can benefit from Muon
                 hidden_weights.append(param)
             else:
-                # Biases, batch norm params, etc. - use regular optimization
                 non_hidden_weights.append(param)
         
         if hidden_weights and non_hidden_weights:
-            # Return separated groups for Muon optimization
             return [
                 {'params': hidden_weights, 'use_muon': True},
                 {'params': non_hidden_weights, 'use_muon': False}
             ]
         else:
-            # Fallback: all parameters in one group (will use AdamW)
             return [{'params': model.parameters(), 'use_muon': False}]
 
 

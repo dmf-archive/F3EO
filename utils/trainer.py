@@ -37,7 +37,6 @@ class Trainer:
         self._broadcast("on_train_begin", store=self.store, output_dir=output_dir)
 
         start_epoch = 0
-        # The loading logic is now handled by the CheckpointSaver callback
         for cb in self.callbacks:
             checkpoint = cb.load(path=f"{output_dir}/latest_checkpoint.pt", model=self.model,
                                  optimizer=self.optimizer, scheduler=scheduler)
@@ -78,7 +77,6 @@ class Trainer:
                         optimizer_handles_backward=optimizer_tags.get("requires_loss_for_step", False)
                     )
 
-                    # Handle optimizers that need loss parameter for step()
                     if optimizer_tags.get("requires_loss_for_step", False):
                         self.optimizer.step(loss_tensor)
                     else:
@@ -123,7 +121,6 @@ class Trainer:
                     if avg_grad_norm is not None:
                         _, avg_pi_obj = pi_calculator.calculate_pi(torch.tensor(avg_entropy), avg_grad_norm)
 
-                # Collect diagnostics from optimizer if available
                 diagnostics = getattr(self.optimizer, 'diagnostics', None)
 
                 epoch_metric = EpochMetric(
@@ -137,7 +134,6 @@ class Trainer:
                 self.store.add_epoch(epoch_metric)
                 self._broadcast("on_epoch_end", store=self.store)
 
-            # Save checkpoint via callback
             self._broadcast("save", epoch=global_epoch, model=self.model, optimizer=self.optimizer,
                           scheduler=scheduler, store=self.store)
 

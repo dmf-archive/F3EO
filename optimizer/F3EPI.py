@@ -3,8 +3,6 @@ from torch.optim.optimizer import Optimizer
 
 
 class F3EPI(Optimizer):
-    """F3EPI优化器：预测完整性引导的三阶优化器"""
-
     def __init__(self,
                  params,
                  lr=1e-3,
@@ -65,10 +63,8 @@ class F3EPI(Optimizer):
 
         meta_grads = torch.autograd.grad(grad_norm_sq, params_with_grad, retain_graph=False, allow_unused=True)
 
-        # 对元梯度进行范数裁剪
         clip_value = self.param_groups[0]['meta_grad_clip_norm']
         if clip_value > 0:
-            # 计算元梯度范数 - 避免使用stack，直接求和
             total_norm = torch.sqrt(sum(torch.norm(g.detach(), 2).pow(2) for g in meta_grads if g is not None))
             clip_coef = clip_value / (total_norm + 1e-6)
 
@@ -92,10 +88,9 @@ class F3EPI(Optimizer):
                     first_grad = grads[param_idx]
                     param_idx += 1
 
-                    if meta_grad is None: # 如果 meta_grad 为 None，说明该参数没有二阶梯度，直接使用一阶梯度
+                    if meta_grad is None:
                         effective_grad = first_grad
                     else:
-                        # 正交化处理：确保 meta_grad 与 first_grad 正交
                         if group['orthogonalize'] and first_grad is not None:
                             first_grad_flat = first_grad.reshape(-1)
                             meta_grad_flat = meta_grad.reshape(-1)
@@ -104,7 +99,6 @@ class F3EPI(Optimizer):
                                 projection_scale = torch.dot(meta_grad_flat, first_grad_flat) / first_grad_dot
                                 meta_grad = meta_grad - projection_scale * first_grad
 
-                        # F3EPI：根据PI值调节复杂度梯度权重
                         effective_grad = first_grad + beta_complexity * meta_grad
 
                     state = self.state[p]

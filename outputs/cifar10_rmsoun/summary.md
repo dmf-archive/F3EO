@@ -23,7 +23,7 @@
     "cutout_length": 16
   },
   "optimizer": {
-    "name": "RMSoun",
+    "name": "RMSuon",
     "lr": 0.001,
     "betas": [
       0.9,

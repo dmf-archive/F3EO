@@ -6,7 +6,6 @@ if TYPE_CHECKING:
 
 
 def get_task(name: str, config: dict) -> "Task":
-    """Factory function to get a task instance by name."""
     try:
         module = importlib.import_module(f"task.{name}")
         task_class_name = "".join(part.capitalize() for part in name.split('_')) + "Task"

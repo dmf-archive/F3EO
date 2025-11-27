@@ -42,12 +42,10 @@ valid_batch = next(iter(valid_loader))
 print(f"\n✓ Train batch shape: {train_batch['source'].shape}")
 print(f"✓ Valid batch shape: {valid_batch['source'].shape}")
 
-# 检查样本质量 - Concatenate-and-Chunk 不再有 padding
 sample = train_loader.dataset.samples[0]
 print(f"\n✓ Sample length: {len(sample)}")
 print(f"✓ All tokens are valid (no padding in Concatenate-and-Chunk)")
 
-# 统计样本数量对比
 print(f"\n✓ Expected sample count increase: ~14x (from ~2.5k to ~36k)")
 print(f"✓ Actual train samples: {len(train_loader.dataset)}")
 print(f"✓ Actual valid samples: {len(valid_loader.dataset)}")

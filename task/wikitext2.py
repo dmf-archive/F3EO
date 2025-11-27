@@ -44,26 +44,12 @@ def get_or_train_tokenizer(config: dict[str, Any]) -> Tokenizer:
 
 
 def concatenate_and_chunk(texts: list[str], tokenizer: Tokenizer, block_size: int) -> list[torch.Tensor]:
-    """
-    标准 Concatenate-and-Chunk 实现
-    将所有文本拼接成一个巨大序列，然后按固定长度切块
-    
-    Args:
-        texts: 文本列表
-        tokenizer: 分词器
-        block_size: 切块大小 (sequence_length)
-    
-    Returns:
-        切块后的 token 序列列表
-    """
-    # 1. 拼接所有文本
     all_tokens = []
     for text in texts:
         if text and text.strip():
             tokens = tokenizer.encode(text).ids
             all_tokens.extend(tokens)
     
-    # 2. 滑动窗口切块（丢弃不完整的最后一块）
     samples = []
     for i in range(0, len(all_tokens) - block_size + 1, block_size):
         chunk = all_tokens[i:i + block_size]
@@ -83,7 +69,6 @@ class Wikitext2Dataset(Dataset):
         seq = self.samples[idx]
         source = seq[:-1]
         target = seq[1:]
-        # Concatenate-and-Chunk 不再有 ignore_index，全部是有效 token
         mask = torch.ones_like(source, dtype=torch.float)
         return {"source": source, "target": target, "mask": mask}
 
@@ -103,21 +88,15 @@ class Wikitext2Task(BaseTask):
         cache_file = cache_dir / f"wikitext2_{split}_concat_chunk_ids.pt"
 
         if cache_file.exists():
-            print(f"Loading cached concatenated-chunk IDs for '{split}' split...")
             samples = torch.load(cache_file)
         else:
-            print(f"No cache found. Building concatenated-chunk '{split}' split...")
             raw_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split=split)
-            
             all_texts = [item['text'] for item in raw_dataset if item['text'] and not item['text'].isspace()]
-            
-            # 使用新的 Concatenate-and-Chunk 方法
             samples = concatenate_and_chunk(
                 all_texts,
                 self.tokenizer,
-                self.sequence_length + 1,  # +1 for causal LM (shift by 1)
+                self.sequence_length + 1,
             )
-            print(f"Saving {len(samples)} concatenated-chunk samples to cache: {cache_file}")
             torch.save(samples, cache_file)
 
         return Wikitext2Dataset(samples)
@@ -149,7 +128,6 @@ class Wikitext2Task(BaseTask):
         return model
 
     def get_criterion(self) -> nn.Module:
-        # Concatenate-and-Chunk 不再有 padding，使用标准交叉熵
         return nn.CrossEntropyLoss()
 
     def get_param_groups(self, model: nn.Module) -> list[dict]:
@@ -200,10 +178,6 @@ class Wikitext2Task(BaseTask):
 
     def validate_epoch(self, model: nn.Module, valid_loader: DataLoader,
                        criterion: nn.Module, device: torch.device) -> dict[str, float]:
-        """
-        标准 WikiText-2 评估：计算整个验证集的联合困惑度
-        将所有验证样本拼接，计算整体损失
-        """
         model.eval()
         total_loss = 0.0
         total_tokens = 0
@@ -222,11 +196,9 @@ class Wikitext2Task(BaseTask):
                 if loss.item() == 0.0:
                     raise RuntimeError(f"Zero loss detected in validation: {loss.item()}")
 
-                # Concatenate-and-Chunk：所有 token 都是有效的，没有 ignore_index
                 total_loss += loss.item() * target_flat.numel()
                 total_tokens += target_flat.numel()
         
-        # 计算整个验证集的联合困惑度
         avg_loss = total_loss / total_tokens if total_tokens > 0 else 0
         perplexity = math.exp(avg_loss) if avg_loss > 0 else float('inf')
         return {"loss": avg_loss, "perplexity": perplexity}

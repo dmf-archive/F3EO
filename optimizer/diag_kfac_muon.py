@@ -8,14 +8,6 @@ from .muon import zeropower_via_newtonschulz5
 
 
 class DiagKFACMuonOptimizer(optim.Optimizer):
-    """
-    DiagKFAC-Muon: Fisher-aware structural regularization for natural gradients.
-    
-    This optimizer correctly applies Muon-style orthogonalization to DiagKFAC natural
-    gradients by adapting the orthogonalization strength based on Fisher information
-    geometry, avoiding the space mismatch problem of naive operator composition.
-    """
-
     def __init__(self,
                  model,
                  lr=0.001,
@@ -90,11 +82,9 @@ class DiagKFACMuonOptimizer(optim.Optimizer):
                 module.register_full_backward_hook(self._save_grad_output)
 
     def _get_natural_grad(self, m, p_grad_mat, damping):
-        """Compute natural gradient with diagonal Fisher approximation"""
         A_inv_diag = 1.0 / (self.m_aa[m] + damping)
         G_inv_diag = 1.0 / (self.m_gg[m] + damping)
 
-        # Natural gradient: F_inv @ grad
         v = p_grad_mat * (G_inv_diag.unsqueeze(1) @ A_inv_diag.unsqueeze(0))
 
         if m.bias is not None:
@@ -107,54 +97,36 @@ class DiagKFACMuonOptimizer(optim.Optimizer):
         return v
 
     def _adaptive_muon_update(self, nat_grad, fisher_info, momentum_buffer):
-        """
-        Fisher-aware Muon update that adapts orthogonalization based on statistical geometry.
-        
-        Args:
-            nat_grad: Natural gradient (F_inv @ g)
-            fisher_info: Fisher information strength indicator
-            momentum_buffer: Momentum buffer for this parameter
-        """
-        # 1. Compute Fisher strength for adaptive control
         fisher_strength = torch.sqrt(fisher_info.mean() + 1e-8)
 
-        # 2. Apply momentum in natural gradient space
         momentum_buffer.lerp_(nat_grad, 1 - self.muon_momentum)
         update = nat_grad.lerp_(momentum_buffer, self.muon_momentum)
 
-        # 3. Skip orthogonalization for 1D parameters
         if update.ndim == 1:
             return update
 
-        # 4. Adaptive orthogonalization based on Fisher strength
         if update.ndim >= 2:
-            # Adaptive steps: more Fisher info -> more orthogonalization
             adaptive_steps = int(
                 self.muon_min_steps +
                 (self.muon_max_steps - self.muon_min_steps) *
                 min(1.0, fisher_strength)
             )
 
-            # Reshape for convolutional layers
             original_shape = update.shape
             if update.ndim == 4:
                 update = update.view(update.size(0), -1)
 
-            # Apply Newton-Schulz orthogonalization
             update = zeropower_via_newtonschulz5(update, steps=adaptive_steps)
 
-            # Fisher-aware spectral scaling
             spectral_scale = max(1, nat_grad.size(-2) / nat_grad.size(-1))**0.5
             fisher_scale = (fisher_strength / (fisher_strength + 1.0))**0.5
             update *= spectral_scale * fisher_scale
 
-            # Restore original shape
             update = update.reshape(original_shape)
 
         return update
 
     def _kl_clip_and_update_grad(self, updates, lr):
-        """KL clipping for natural gradients"""
         vg_sum = 0
         for m in self.modules:
             v = updates[m]
@@ -174,7 +146,6 @@ class DiagKFACMuonOptimizer(optim.Optimizer):
 
     @staticmethod
     def _get_matrix_form_grad(m, classname):
-        """Convert gradient to matrix form for natural gradient computation"""
         if classname == 'Conv2d':
             p_grad_mat = m.weight.grad.data.reshape(m.weight.grad.data.size(0), -1)
         else:
@@ -184,14 +155,12 @@ class DiagKFACMuonOptimizer(optim.Optimizer):
         return p_grad_mat
 
     def step(self, closure=None):
-        """Main optimization step with Fisher-aware structural regularization"""
         group = self.param_groups[0]
         lr = group['lr']
         damping = group['damping']
         weight_decay = group['weight_decay']
         momentum = group['momentum']
 
-        # Step 1: Compute natural gradients
         updates = {}
         fisher_info = {}
 
@@ -199,42 +168,34 @@ class DiagKFACMuonOptimizer(optim.Optimizer):
             classname = m.__class__.__name__
             p_grad_mat = self._get_matrix_form_grad(m, classname)
 
-            # Get natural gradient
             v = self._get_natural_grad(m, p_grad_mat, damping)
             updates[m] = v
 
-            # Store Fisher information for adaptive control
             fisher_info[m] = {
                 'A_diag': self.m_aa[m],
                 'G_diag': self.m_gg[m]
             }
 
-        # Step 2: Apply KL clipping
         self._kl_clip_and_update_grad(updates, lr)
 
-        # Step 3: Apply Fisher-aware Muon structural regularization
         for m in self.modules:
             if m not in updates:
                 continue
 
-            # Apply structural regularization to each parameter
             for i, p in enumerate(m.parameters()):
                 if p.grad is None or p.ndim < 2:
                     continue
 
                 state = self.state[p]
 
-                # Initialize momentum buffer if needed
                 if 'muon_momentum_buffer' not in state:
                     state['muon_momentum_buffer'] = torch.zeros_like(p.grad)
 
-                # Compute composite Fisher strength for this parameter
-                if i == 0:  # weight
+                if i == 0:
                     param_fisher = fisher_info[m]['A_diag'][:p.shape[1]].mean()
-                else:  # bias
+                else:
                     param_fisher = fisher_info[m]['A_diag'][-1:].mean()
 
-                # Apply adaptive Muon update to the natural gradient
                 nat_grad = p.grad.data.clone()
                 struct_grad = self._adaptive_muon_update(
                     nat_grad,
@@ -242,10 +203,8 @@ class DiagKFACMuonOptimizer(optim.Optimizer):
                     state['muon_momentum_buffer']
                 )
 
-                # Update gradient with structurally regularized natural gradient
                 p.grad.data.copy_(struct_grad)
 
-        # Step 4: Standard SGD update with momentum
         for group in self.param_groups:
             for p in group['params']:
                 if p.grad is None:
@@ -253,11 +212,9 @@ class DiagKFACMuonOptimizer(optim.Optimizer):
 
                 d_p = p.grad.data
 
-                # Weight decay
                 if weight_decay != 0:
                     d_p.add_(p.data, alpha=weight_decay)
 
-                # Momentum
                 if momentum != 0:
                     param_state = self.state[p]
                     if 'sgd_momentum_buffer' not in param_state:
@@ -267,7 +224,6 @@ class DiagKFACMuonOptimizer(optim.Optimizer):
                         buf.mul_(momentum).add_(d_p, alpha=1)
                     d_p = buf
 
-                # Parameter update
                 p.data.add_(d_p, alpha=-lr)
 
         self.steps += 1

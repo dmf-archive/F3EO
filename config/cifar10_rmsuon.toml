@@ -16,7 +16,7 @@ n_holes = 1
 cutout_length = 16
 
 [optimizer]
-name = "RMSoun"
+name = "RMSuon"
 lr = 0.001          # Standard AdamW learning rate
 betas = [0.9, 0.999] # Standard AdamW betas
 eps = 1e-8          # Standard AdamW epsilon

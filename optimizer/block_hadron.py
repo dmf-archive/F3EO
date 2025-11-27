@@ -7,22 +7,6 @@ from .muon import muon_update
 
 
 class BlockHadron(optim.Optimizer):
-    """
-    BlockHadron Optimizer: A block-diagonal KFAC approximation combined with Muon.
-
-    This optimizer is designed primarily for Transformer models, where full KFAC is
-    often computationally infeasible. It uses a block-diagonal approximation for
-    the Fisher Information Matrix, capturing local correlations within parameter
-    blocks (e.g., in Linear layers) without the full O(d^2) cost.
-
-    The core idea is to treat certain layers (like Linear) as a set of smaller,
-    independent blocks and compute KFAC factors for each block, resulting in a
-    block-diagonal Fisher matrix that is much cheaper to invert and store.
-
-    The operator composition pipeline remains the same as Hadron:
-    g -> g_nat = F_block_diag⁻¹g -> g_update = Ortho(g_nat)
-    """
-
     def __init__(self,
                  param_groups,
                  model=None,
@@ -59,7 +43,7 @@ class BlockHadron(optim.Optimizer):
         self.block_size = block_size
         self.srm_gamma = srm_gamma
 
-        self.known_modules = {'Linear'}  # Initially, only support Linear for block-diagonal
+        self.known_modules = {'Linear'}
         self.modules = []
         
         if self.model is not None:
@@ -83,7 +67,6 @@ class BlockHadron(optim.Optimizer):
             if module.bias is not None:
                 a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
             
-            # Block-diagonal approximation
             for i in range(0, a.shape[1], self.block_size):
                 block = a[:, i:i+self.block_size]
                 cov_block = block.t() @ (block / block.size(0))
@@ -99,7 +82,6 @@ class BlockHadron(optim.Optimizer):
         if self.steps % self.TCov == 0:
             g = grad_output[0].data.reshape(-1, module.out_features)
             
-            # Block-diagonal approximation
             for i in range(0, g.shape[1], self.block_size):
                 block = g[:, i:i+self.block_size]
                 cov_block = block.t() @ (block / block.size(0))
@@ -125,7 +107,6 @@ class BlockHadron(optim.Optimizer):
     def _get_natural_grad(self, m, p_grad_mat):
         v = torch.zeros_like(p_grad_mat)
         
-        # Apply block-wise natural gradient
         for i_g, G_inv_block in self.G_inv[m].items():
             for i_a, A_inv_block in self.A_inv[m].items():
                 grad_block = p_grad_mat[i_g:i_g+self.block_size, i_a:i_a+self.block_size]
@@ -141,7 +122,6 @@ class BlockHadron(optim.Optimizer):
 
     @torch.no_grad()
     def step(self, closure=None):
-        # AdamW step for non-block-hadron groups
         for group in self.param_groups_adam:
             for p in group['params']:
                 if p.grad is None: continue
@@ -169,7 +149,6 @@ class BlockHadron(optim.Optimizer):
                 if group['weight_decay'] != 0:
                     p.data.add_(p.data, alpha=-group['weight_decay'] * group['lr'])
 
-        # BlockHadron step for its groups
         for group in self.param_groups_block_hadron:
             lr = group['lr']
             weight_decay = group['weight_decay']
@@ -226,7 +205,7 @@ class BlockHadron(optim.Optimizer):
                 if p.grad is None: continue
                 d_p = p.grad.data
                 if weight_decay != 0:
-                    p.data.add_(p.data, alpha=-weight_decay * lr) # AdamW-style decay
+                    p.data.add_(p.data, alpha=-weight_decay * lr)
                 p.data.add_(d_p, alpha=-lr)
 
         self.steps += 1

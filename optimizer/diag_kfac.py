@@ -50,7 +50,6 @@ class DiagKFACOptimizer(optim.Optimizer):
 
     def _save_input(self, module, input):
         if torch.is_grad_enabled() and self.steps % self.TCov == 0:
-            # We only need the diagonal of the covariance matrix
             a = input[0].data
             a = a.reshape(-1, a.size(-1))
             if module.bias is not None:
@@ -82,14 +81,9 @@ class DiagKFACOptimizer(optim.Optimizer):
                 module.register_full_backward_hook(self._save_grad_output)
 
     def _get_natural_grad(self, m, p_grad_mat, damping):
-        # p_grad_mat is of output_dim * input_dim
-        # F_inv = (A_inv x G_inv)
-        # natural_grad = F_inv @ grad
         A_inv_diag = 1.0 / (self.m_aa[m] + damping)
         G_inv_diag = 1.0 / (self.m_gg[m] + damping)
 
-        # Kronecker product with diagonal matrices is equivalent to outer product
-        # and then element-wise multiplication with the gradient matrix.
         v = p_grad_mat * (G_inv_diag.unsqueeze(1) @ A_inv_diag.unsqueeze(0))
 
         if m.bias is not None:

@@ -55,7 +55,6 @@ class MnistClTask(BaseTask):
         train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
         test_dataset = datasets.MNIST('./data', train=False, transform=transform)
 
-        # The trainer expects a single test_loader, but we will use the one we hold internally for full evaluation
         return self._build_dataloader(train_dataset, shuffle=True), self._build_dataloader(test_dataset, shuffle=False)
 
     def get_model(self) -> nn.Module:
@@ -94,7 +93,6 @@ class MnistClTask(BaseTask):
         model.eval()
         results = {}
 
-        # 1. Evaluate on MNIST (its own test set, passed by trainer)
         mnist_loss, mnist_correct, mnist_total = 0.0, 0, 0
         with torch.no_grad():
             for data, target in test_loader:
@@ -109,7 +107,6 @@ class MnistClTask(BaseTask):
         results['mnist_accuracy'] = 100.0 * mnist_correct / mnist_total
         results['mnist_loss'] = mnist_loss / len(test_loader)
 
-        # 2. Evaluate on FashionMNIST to see interference
         fashion_loss, fashion_correct, fashion_total = 0.0, 0, 0
         with torch.no_grad():
             for data, target in self.fashion_test_loader:
@@ -124,7 +121,6 @@ class MnistClTask(BaseTask):
         results['fashion_accuracy'] = 100.0 * fashion_correct / fashion_total
         results['fashion_loss'] = fashion_loss / len(self.fashion_test_loader)
 
-        # Add placeholder for learning_shock to maintain consistent columns
         results['learning_shock'] = None
 
         return results

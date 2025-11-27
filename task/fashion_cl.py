@@ -24,7 +24,6 @@ class FashionClTask(BaseTask):
         self.learning_shock = None
         self._is_first_step = True
 
-        # We need a handle to the MNIST test set to measure forgetting
         self.mnist_test_loader = self._get_mnist_test_loader()
 
     def _get_transform(self):
@@ -63,14 +62,12 @@ class FashionClTask(BaseTask):
         return self._build_dataloader(train_dataset, shuffle=True), self._build_dataloader(test_dataset, shuffle=False)
 
     def get_model(self) -> nn.Module:
-        # This task will reuse the model from the previous task, so this method shouldn't be called by the trainer.
         raise NotImplementedError("FashionClTask reuses the model and does not create a new one.")
 
     def get_criterion(self) -> nn.Module:
         return nn.CrossEntropyLoss()
 
     def get_param_groups(self, model: nn.Module) -> list:
-        # FOG parameter groups
         hidden_weights = [p for n, p in model.named_parameters() if p.ndim >= 2 and 'embed' not in n]
         others = [p for n, p in model.named_parameters() if p.ndim < 2 or 'embed' in n]
         return [
@@ -103,7 +100,6 @@ class FashionClTask(BaseTask):
         model.eval()
         results = {}
 
-        # 1. Validate on FashionMNIST (its own test set, passed by trainer)
         fashion_loss, fashion_correct, fashion_total = 0.0, 0, 0
         with torch.no_grad():
             for data, target in test_loader:
@@ -118,7 +114,6 @@ class FashionClTask(BaseTask):
         results['fashion_accuracy'] = 100.0 * fashion_correct / fashion_total
         results['fashion_loss'] = fashion_loss / len(test_loader)
 
-        # 2. Validate on MNIST to measure forgetting
         mnist_loss, mnist_correct, mnist_total = 0.0, 0, 0
         with torch.no_grad():
             for data, target in self.mnist_test_loader:
@@ -133,7 +128,6 @@ class FashionClTask(BaseTask):
         results['mnist_accuracy'] = 100.0 * mnist_correct / mnist_total
         results['mnist_loss'] = mnist_loss / len(self.mnist_test_loader)
 
-        # 3. Report learning shock if it was captured
         if self.learning_shock is not None:
             results['learning_shock'] = self.learning_shock
             self.learning_shock = None
