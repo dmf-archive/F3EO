@@ -6,6 +6,8 @@
 
 ## 1. Hessian-Fisher 等价性谬误
 
+> Fast Fisher Free Energy Optimizer系列。可惜既不快速，也不Fisher，自然无法优化自由能。
+
 代表作: F3EPI, F3EWD, AdaF3E, F3E-Warp
 核心假设: `𝗛 ≈ 𝗙` (Hessian 近似 Fisher)
 

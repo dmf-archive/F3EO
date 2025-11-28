@@ -5,6 +5,7 @@ from .base import Callback
 
 if TYPE_CHECKING:
     from utils.data import EpochMetric
+
     from .context import TrainerContext
 
 
