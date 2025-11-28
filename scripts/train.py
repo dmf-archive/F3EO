@@ -49,7 +49,6 @@ def train(config: dict[str, Any], config_name: str):
         torch.cuda.manual_seed(config["experiment"]["seed"])
 
     output_dir = Path("outputs") / config_name
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     task_names = config["experiment"]["tasks"]
     from task import get_task
@@ -70,9 +69,9 @@ def train(config: dict[str, Any], config_name: str):
     scheduler = create_scheduler(optimizer, config)
 
     callbacks = [
-        ConsoleLogger(config),
-        MDLogger(config, output_dir),
-        CheckpointSaver(output_dir)
+        ConsoleLogger(),
+        MDLogger(),
+        CheckpointSaver()
     ]
 
     train_loaders = {}
@@ -107,7 +106,7 @@ def train(config: dict[str, Any], config_name: str):
             scheduler=scheduler,
             optimizer_tags=optimizer_tags,
             pi_config=pi_config,
-            output_dir=str(output_dir)
+            output_dir=output_dir
         )
 
 def main():

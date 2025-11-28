@@ -43,27 +43,26 @@ def get_or_train_tokenizer(config: dict[str, Any]) -> Tokenizer:
     return tokenizer
 
 
-def concatenate_and_chunk(texts: list[str], tokenizer: Tokenizer, block_size: int) -> list[torch.Tensor]:
+def concatenate_and_chunk(texts: list[str], tokenizer: Tokenizer, block_size: int) -> torch.Tensor:
     all_tokens = []
     for text in texts:
         if text and text.strip():
             tokens = tokenizer.encode(text).ids
             all_tokens.extend(tokens)
-
-    samples = []
-    for i in range(0, len(all_tokens) - block_size + 1, block_size):
-        chunk = all_tokens[i:i + block_size]
-        samples.append(torch.tensor(chunk, dtype=torch.long))
-
-    return samples
+    
+    # Truncate to a multiple of block_size
+    num_tokens = (len(all_tokens) // block_size) * block_size
+    all_tokens_tensor = torch.tensor(all_tokens[:num_tokens], dtype=torch.long)
+    
+    return all_tokens_tensor.view(-1, block_size)
 
 
 class Wikitext2Dataset(Dataset):
-    def __init__(self, samples: list[torch.Tensor]):
+    def __init__(self, samples: torch.Tensor):
         self.samples = samples
 
     def __len__(self):
-        return len(self.samples)
+        return self.samples.size(0)
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         seq = self.samples[idx]
@@ -89,6 +88,8 @@ class Wikitext2Task(BaseTask):
 
         if cache_file.exists():
             samples = torch.load(cache_file)
+            if isinstance(samples, list):
+                samples = torch.cat(samples)
         else:
             raw_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split=split)
             all_texts = [item['text'] for item in raw_dataset if item['text'] and not item['text'].isspace()]
@@ -181,10 +182,7 @@ class Wikitext2Task(BaseTask):
                 output = logits
             else:
                 log_probas = model(batch["source"])
-                batch_size, seq_len_minus_1, vocab_size = log_probas.shape
-                log_probas_flat = log_probas.view(-1, vocab_size)
-                target_flat = batch["target"].view(-1)
-                loss = criterion(log_probas_flat, target_flat)
+                loss = criterion(log_probas.transpose(1, 2), batch["target"])
                 output = log_probas
 
             if torch.isnan(loss) or torch.isinf(loss):
@@ -213,10 +211,7 @@ class Wikitext2Task(BaseTask):
                     current_loss = loss.item()
                 else:
                     log_probas = model(batch["source"])
-                    batch_size, seq_len_minus_1, vocab_size = log_probas.shape
-                    log_probas_flat = log_probas.view(-1, vocab_size)
-                    target_flat = batch["target"].view(-1)
-                    loss = criterion(log_probas_flat, target_flat)
+                    loss = criterion(log_probas.transpose(1, 2), batch["target"])
                     current_loss = loss.item()
 
                 if torch.isnan(loss) or torch.isinf(loss):

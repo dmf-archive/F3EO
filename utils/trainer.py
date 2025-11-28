@@ -1,4 +1,5 @@
 import time
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -7,6 +8,7 @@ from utils.data import EpochMetric, MetricStore, StepMetric, TaskMetrics
 from utils.metrics import PICalculator, compute_grad_norm
 
 from .callbacks.base import Callback
+from .callbacks.context import TrainerContext
 
 
 class Trainer:
@@ -20,45 +22,56 @@ class Trainer:
         self.callbacks = callbacks
         self.config = config
         self.store = MetricStore()
+        self.context: TrainerContext | None = None
 
-    def _broadcast(self, event: str, **kwargs):
+    def _broadcast(self, event: str):
         for cb in self.callbacks:
-            getattr(cb, event)(**kwargs)
+            getattr(cb, event)(self.context)
 
     def fit(self, tasks: dict, train_loaders: dict, valid_loaders: dict,
             scheduler: torch.optim.lr_scheduler._LRScheduler | None,
-            optimizer_tags: dict, pi_config: dict | None, output_dir: str):
+            optimizer_tags: dict, pi_config: dict | None, output_dir: Path):
+
+        self.context = TrainerContext(
+            config=self.config,
+            output_dir=output_dir,
+            device=self.device,
+            model=self.model,
+            optimizer=self.optimizer,
+            store=self.store,
+            scheduler=scheduler,
+            total_epochs=self.config["train"]["epochs"]
+        )
 
         pi_gamma = pi_config.get("gamma", 1.0) if pi_config else 1.0
         pi_alpha = pi_config.get("alpha", 1.0) if pi_config else 1.0
         pi_ema_beta = pi_config.get("ema_beta") if pi_config else None
         pi_calculator = PICalculator(gamma=pi_gamma, alpha=pi_alpha, ema_beta=pi_ema_beta)
 
-        self._broadcast("on_train_begin", store=self.store, output_dir=output_dir)
+        self._broadcast("on_train_begin")
 
         start_epoch = 0
         for cb in self.callbacks:
-            checkpoint = cb.load(path=f"{output_dir}/latest_checkpoint.pt", model=self.model,
-                                 optimizer=self.optimizer, scheduler=scheduler)
-            if checkpoint:
-                start_epoch = checkpoint["epoch"] + 1
-                self.store = checkpoint["store"]
+            if cb.load(self.context):
+                start_epoch = self.context.current_epoch + 1
                 print(f"Resuming training from epoch {start_epoch}")
                 break
 
-        global_step = 0
-        epochs = self.config["train"]["epochs"]
+        self.context.global_step = 0
         task_names = list(tasks.keys())
 
-        for global_epoch in range(start_epoch, epochs):
+        for global_epoch in range(start_epoch, self.context.total_epochs):
+            self.context.current_epoch = global_epoch
+            self.context.is_training = True
             self.model.train()
 
             for task_name in task_names:
+                self.context.current_task_name = task_name
                 current_task = tasks[task_name]
                 current_train_loader = train_loaders[task_name]
-                task_epoch = len(self.store.get_history_for_task(task_name))
+                self.context.total_steps_in_epoch = len(current_train_loader)
 
-                self._broadcast("on_epoch_begin", epoch=global_epoch, total_steps=len(current_train_loader))
+                self._broadcast("on_epoch_begin")
 
                 epoch_start_time = time.time()
                 if self.device.type == 'cuda':
@@ -70,6 +83,9 @@ class Trainer:
                 num_tokens_in_epoch = 0
 
                 for step, batch in enumerate(current_train_loader):
+                    self.context.current_step_in_epoch = step
+                    self._broadcast("on_step_begin")
+
                     logits, loss_tensor, _ = current_task.train_step(
                         model=self.model, batch=batch, criterion=self.criterion, optimizer=self.optimizer,
                         device=self.device,
@@ -83,11 +99,12 @@ class Trainer:
                         self.optimizer.step()
 
                     step_metric = StepMetric(
-                        task_name=task_name, global_step=global_step, task_epoch=task_epoch,
+                        task_name=task_name, global_step=self.context.global_step,
+                        task_epoch=len(self.store.get_history_for_task(task_name)),
                         step_in_epoch=step, loss=loss_tensor.item(), learning_rate=self.optimizer.param_groups[0]['lr']
                     )
                     self.store.add_step(step_metric)
-                    self._broadcast("on_step_end", step_metric=step_metric, total_steps=len(current_train_loader))
+                    self._broadcast("on_step_end")
 
                     if pi_calculator and logits is not None:
                         with torch.no_grad():
@@ -98,13 +115,13 @@ class Trainer:
 
                     epoch_loss_sum += loss_tensor.item()
                     epoch_grad_norm_list.append(compute_grad_norm(self.model))
-                    global_step += 1
+                    self.context.global_step += 1
 
+                self.context.is_training = False
                 self.model.eval()
                 with torch.no_grad():
                     task_metrics_dict = current_task.validate_epoch(self.model, valid_loaders[task_name], self.criterion, self.device)
                 task_metrics = TaskMetrics(metrics=task_metrics_dict)
-                self.model.train()
 
                 epoch_time = time.time() - epoch_start_time
                 peak_gpu_mem_mb = None
@@ -124,7 +141,8 @@ class Trainer:
                 diagnostics = getattr(self.optimizer, 'diagnostics', None)
 
                 epoch_metric = EpochMetric(
-                    task_name=task_name, task_epoch=task_epoch, global_epoch=global_epoch,
+                    task_name=task_name, task_epoch=len(self.store.get_history_for_task(task_name)),
+                    global_epoch=global_epoch,
                     avg_train_loss=avg_train_loss, task_metrics=task_metrics,
                     avg_pi_obj=avg_pi_obj, avg_entropy=avg_entropy,
                     grad_norm=avg_grad_norm, learning_rate=self.optimizer.param_groups[0]['lr'],
@@ -132,12 +150,11 @@ class Trainer:
                     epoch_time_s=epoch_time, peak_gpu_mem_mb=peak_gpu_mem_mb
                 )
                 self.store.add_epoch(epoch_metric)
-                self._broadcast("on_epoch_end", store=self.store)
+                self._broadcast("on_epoch_end")
 
-            self._broadcast("save", epoch=global_epoch, model=self.model, optimizer=self.optimizer,
-                          scheduler=scheduler, store=self.store)
+            self._broadcast("save")
 
             if scheduler:
                 scheduler.step()
 
-        self._broadcast("on_train_end", store=self.store)
+        self._broadcast("on_train_end")

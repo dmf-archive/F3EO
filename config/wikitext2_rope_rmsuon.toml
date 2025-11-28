@@ -16,7 +16,7 @@ tie_word_embeddings = true
 
 [data]
 batch_size = 8
-num_workers = 4
+num_workers = 0
 tokenizer_path = "./data/wikitext2_tokenizer.json"
 
 [optimizer]

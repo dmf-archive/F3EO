@@ -1,64 +1,51 @@
 import json
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-import torch
+from typing import TYPE_CHECKING
 
 from .base import Callback
 
 if TYPE_CHECKING:
-    from utils.data import EpochMetric, MetricStore, StepMetric
+    from utils.data import EpochMetric
+    from .context import TrainerContext
 
 
 class MDLogger(Callback):
-    def __init__(self, config: dict[str, Any], output_dir: Path):
-        self.config = config
-        self.output_dir = output_dir
 
-    def on_train_begin(self, store: "MetricStore", **kwargs):
+    def on_train_begin(self, context: "TrainerContext"):
         pass
 
-    def on_train_end(self, store: "MetricStore", **kwargs):
-        epoch_history = store.get_flat_epoch_history()
+    def on_train_end(self, context: "TrainerContext"):
+        self._write_report(context)
+
+    def on_epoch_begin(self, context: "TrainerContext"):
+        pass
+
+    def on_epoch_end(self, context: "TrainerContext"):
+        self._write_report(context)
+
+    def on_step_begin(self, context: "TrainerContext"):
+        pass
+
+    def on_step_end(self, context: "TrainerContext"):
+        pass
+
+    def save(self, context: "TrainerContext"):
+        pass
+
+    def load(self, context: "TrainerContext") -> bool:
+        return False
+
+    def _write_report(self, context: "TrainerContext"):
+        epoch_history = context.store.get_flat_epoch_history()
         if not epoch_history:
             return
 
-        report = self._generate_report(epoch_history)
-        report_path = self.output_dir / "summary.md"
+        report = self._generate_report(epoch_history, context.config)
+        report_path = context.output_dir / "summary.md"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         with open(report_path, 'w') as f:
             f.write(report)
 
-    def on_epoch_begin(self, epoch: int, total_steps: int, **kwargs):
-        pass
-
-    def on_epoch_end(self, store: "MetricStore", **kwargs):
-        epoch_history = store.get_flat_epoch_history()
-        if not epoch_history:
-            return
-
-        report = self._generate_report(epoch_history)
-        report_path = self.output_dir / "summary.md"
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(report_path, 'w') as f:
-            f.write(report)
-
-    def on_step_begin(self, step: int, **kwargs):
-        pass
-
-    def on_step_end(self, step_metric: "StepMetric", total_steps: int, **kwargs):
-        pass
-
-    def save(self, epoch: int, model: "torch.nn.Module", optimizer: "torch.optim.Optimizer",
-             scheduler: "torch.optim.lr_scheduler._LRScheduler | None", store: "MetricStore", **kwargs):
-        pass
-
-    def load(self, path: str, model: "torch.nn.Module", optimizer: "torch.optim.Optimizer",
-             scheduler: "torch.optim.lr_scheduler._LRScheduler | None", **kwargs) -> dict | None:
-        return None
-
-    def _generate_report(self, epoch_data: list["EpochMetric"]) -> str:
-
+    def _generate_report(self, epoch_data: list["EpochMetric"], config: dict) -> str:
         task_names = sorted(list(set(e.task_name for e in epoch_data)))
 
         headers = ["Epoch", "Task", "Train Loss", "LR", "PI", "Eff. Gamma", "Entropy", "Grad Norm", "Epoch Time (s)", "Peak GPU Mem (MB)"]
@@ -82,7 +69,7 @@ class MDLogger(Callback):
             if pi_val is not None:
                 row += f"| {pi_val.raw_pi:.3f} "
             else:
-                row += f"| {getattr(data, 'avg_pi', 'N/A')} " if getattr(data, 'avg_pi', None) is not None else "| N/A "
+                row += "| N/A "
             row += f"| {getattr(data, 'avg_effective_gamma', 'N/A')} " if getattr(data, 'avg_effective_gamma', None) is not None else "| N/A "
             row += f"| {data.avg_entropy:.3f} " if data.avg_entropy is not None else "| N/A "
             row += f"| {data.grad_norm:.4f} " if data.grad_norm is not None else "| N/A "
@@ -103,7 +90,7 @@ class MDLogger(Callback):
 
 ## Configuration Summary
 ```json
-{json.dumps(self.config, indent=2)}
+{json.dumps(config, indent=2)}
 ```
 
 ## Training Results
@@ -125,13 +112,16 @@ class MDLogger(Callback):
                 metrics = [e.task_metrics.metrics.get(key) for e in epoch_data if e.task_name == name and e.task_metrics.metrics.get(key) is not None]
                 if not metrics: continue
                 valid_metrics = [m for m in metrics if isinstance(m, float)]
-                best_val = min(valid_metrics) if is_ppl else max(valid_metrics) if valid_metrics else 0.0
+                if not valid_metrics: continue
+                best_val = min(valid_metrics) if is_ppl else max(valid_metrics)
                 summary.append(f"{name} {key.capitalize()}: {best_val:.2f}")
         return ", ".join(summary)
 
     def _get_final_metrics_summary(self, epoch_data: list["EpochMetric"], task_names: list[str]) -> str:
         summary = []
         for name in task_names:
-            last_epoch_for_task = max([e for e in epoch_data if e.task_name == name], key=lambda x: x.global_epoch)
+            epochs_for_task = [e for e in epoch_data if e.task_name == name]
+            if not epochs_for_task: continue
+            last_epoch_for_task = max(epochs_for_task, key=lambda x: x.global_epoch)
             summary.append(f"{name}: {json.dumps(last_epoch_for_task.task_metrics.metrics)}")
         return ", ".join(summary)
