@@ -20,7 +20,7 @@ class TrainerContext:
     config: dict[str, Any]
     output_dir: Path
     device: torch.device
-    
+
     # Core Components
     model: nn.Module
     optimizer: Optimizer
@@ -31,11 +31,11 @@ class TrainerContext:
     current_epoch: int = 0
     total_epochs: int = 0
     global_step: int = 0
-    
+
     # Task-Specific State (updated during task loops)
     current_task_name: str | None = None
     total_steps_in_epoch: int = 0
     current_step_in_epoch: int = 0
-    
+
     # Flags
     is_training: bool = False

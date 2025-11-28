@@ -40,10 +40,18 @@ class PICalculator:
 
         return instant_pi_obj, instant_pi_obj
 
-def compute_grad_norm(model: torch.nn.Module) -> float:
-    total_norm = 0.0
-    for p in model.parameters():
-        if p.grad is not None:
-            param_norm = p.grad.data.norm(2)
-            total_norm += param_norm.item() ** 2
-    return total_norm ** 0.5
+def compute_grad_norm(model: torch.nn.Module, return_tensor: bool = False) -> float | torch.Tensor | None:
+    grad_norms = [
+        p.grad.detach().data.norm(2)
+        for p in model.parameters()
+        if p.grad is not None
+    ]
+    if not grad_norms:
+        return None
+
+    total_norm_sq = torch.stack(grad_norms).pow(2).sum()
+    total_norm = total_norm_sq.sqrt()
+
+    if return_tensor:
+        return total_norm
+    return total_norm.item()

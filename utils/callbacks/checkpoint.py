@@ -64,7 +64,7 @@ class CheckpointSaver(Callback):
         context.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         if context.scheduler and checkpoint.get("scheduler_state_dict"):
             context.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        
+
         context.store = checkpoint["store"]
         context.current_epoch = checkpoint["epoch"]
 

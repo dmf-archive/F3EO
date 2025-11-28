@@ -77,9 +77,9 @@ class Trainer:
                 if self.device.type == 'cuda':
                     torch.cuda.reset_peak_memory_stats()
 
-                epoch_loss_sum = 0.0
+                epoch_loss_sum = torch.tensor(0.0, device=self.device)
                 epoch_grad_norm_list = []
-                epoch_entropy_sum = 0.0
+                epoch_entropy_sum = torch.tensor(0.0, device=self.device)
                 num_tokens_in_epoch = 0
 
                 for step, batch in enumerate(current_train_loader):
@@ -106,15 +106,18 @@ class Trainer:
                     self.store.add_step(step_metric)
                     self._broadcast("on_step_end")
 
-                    if pi_calculator and logits is not None:
-                        with torch.no_grad():
+                    with torch.no_grad():
+                        if pi_calculator and logits is not None:
                             probas = torch.softmax(logits, dim=-1)
-                            batch_entropy_sum = -(probas * torch.log_softmax(logits, dim=-1)).sum()
-                            epoch_entropy_sum += batch_entropy_sum.item()
-                            num_tokens_in_epoch += logits.shape[0] * logits.shape[1]
+                            batch_entropy = -(probas * torch.log_softmax(logits, dim=-1)).sum()
+                            epoch_entropy_sum += batch_entropy
+                            num_tokens_in_epoch += logits.numel()
 
-                    epoch_loss_sum += loss_tensor.item()
-                    epoch_grad_norm_list.append(compute_grad_norm(self.model))
+                        epoch_loss_sum += loss_tensor
+                        grad_norm_tensor = compute_grad_norm(self.model, return_tensor=True)
+                        if grad_norm_tensor is not None:
+                            epoch_grad_norm_list.append(grad_norm_tensor)
+
                     self.context.global_step += 1
 
                 self.context.is_training = False
@@ -129,14 +132,20 @@ class Trainer:
                     peak_gpu_mem_bytes = torch.cuda.max_memory_allocated()
                     peak_gpu_mem_mb = peak_gpu_mem_bytes / (1024 ** 2)
 
-                avg_train_loss = epoch_loss_sum / len(current_train_loader)
-                avg_grad_norm = sum(epoch_grad_norm_list) / len(epoch_grad_norm_list) if epoch_grad_norm_list else None
+                avg_train_loss = (epoch_loss_sum / len(current_train_loader)).item()
+
+                avg_grad_norm_tensor = None
+                if epoch_grad_norm_list:
+                    avg_grad_norm_tensor = torch.stack(epoch_grad_norm_list).mean()
+
+                avg_grad_norm = avg_grad_norm_tensor.item() if avg_grad_norm_tensor is not None else None
 
                 avg_entropy, avg_pi_obj = None, None
                 if pi_calculator and num_tokens_in_epoch > 0:
-                    avg_entropy = epoch_entropy_sum / num_tokens_in_epoch
-                    if avg_grad_norm is not None:
-                        _, avg_pi_obj = pi_calculator.calculate_pi(torch.tensor(avg_entropy), avg_grad_norm)
+                    avg_entropy_tensor = epoch_entropy_sum / num_tokens_in_epoch
+                    avg_entropy = avg_entropy_tensor.item()
+                    if avg_grad_norm_tensor is not None:
+                        _, avg_pi_obj = pi_calculator.calculate_pi(avg_entropy_tensor, avg_grad_norm_tensor)
 
                 diagnostics = getattr(self.optimizer, 'diagnostics', None)
 

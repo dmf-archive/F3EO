@@ -8,7 +8,6 @@ import torch.nn as nn
 import torchvision
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
-
 from utils.download import resumable_download
 
 from .base import BaseTask
