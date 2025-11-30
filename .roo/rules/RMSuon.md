@@ -7,9 +7,9 @@
 
 `RMSuon` 是 FEP/IPWT [1] 框架下 `SOO-OFE` 路径的工程实现，其算子复合范式构成了对感知推断过程的最简可行近似：
 
-1. 统计算子 (AdamW)：`energy = ||m̂ / (√v̂ + ε)||` 作为标量化的观测自由能下降速率指标。在 PyTorch 实现中，这对应于 `torch.norm()`，其计算结果在数值上等价于 `Frobenius` 范数 (`||·||_F`)。`AdamW` [2] 通过其二阶矩 `v` 近似 Fisher 信息矩阵的对角线 [3]，因此 `energy` 编码了参数沿自然梯度方向更新的统计强度，直接关联变分自由能 `F` 的瞬时下降。
+1. 统计算子 (AdamW)：`energy = ||m̂ / (√v̂ + ε)||` 作为标量化的观测自由能下降速率指标。在 PyTorch 实现中，这对应于 `torch.norm()`，其计算结果在数值上等价于 `Frobenius` 范数 (`||·||_F`)。`AdamW` [2] 通过其二阶矩 `v` 近似 Fisher 信息矩阵的对角线，因此 `energy` 编码了参数沿自然梯度方向更新的统计强度，直接关联变分自由能 `F` 的瞬时下降。
 
-2. 结构算子 (Muon)：`Newton-Schulz` 正交化 [4] 在参数流形上构建信息几何信任区 [5]，通过谱范数约束更新复杂度，契合 FEP 的最小描述长度原则——更新轨迹必须最简洁。如同维果茨基的"最近发展区 (ZPD)" [6]，Muon 在谱范数信任区内进行最安全的探索，确保几何稳定性。
+2. 结构算子 (Muon)：`Newton-Schulz` 正交化 [3] 在参数流形上构建信息几何信任区 [4]，通过谱范数约束更新复杂度，契合 FEP 的最小描述长度原则——更新轨迹必须最简洁。如同维果茨基的"最近发展区 (ZPD)" [5]，Muon 在谱范数信任区内进行最安全的探索，确保几何稳定性。
 
 3. 能量-几何解耦：`g_update = scale * O_t` 将"走多快"（`energy` 决定的 OFE 强度）与"往哪走"（`O_t` 决定的几何约束）进行功能性非线性解耦，使优化器无需未来模拟即可沿近似测地线滑行，解决 `OFE-EFE` 对偶性危机。
 
@@ -38,7 +38,7 @@ else:
 
 ## 与 `Muon` 家族的理论分野
 
-`RMSuon`、`AdaMuon` [7] 和 `NorMuon` [8] 共同确立了统计-结构算子复合作为下一代优化器的核心范式。它们的关键区别在于自适应性的粒度与实现机制。
+`RMSuon`、`AdaMuon` [6] 和 `NorMuon` [7] 共同确立了统计-结构算子复合作为下一代优化器的核心范式。它们的关键区别在于自适应性的粒度与实现机制。
 
 | 优化器      | 核心机制         | 统计源 (Energy)   | 结构约束 (Geometry)      | 适应性粒度                    |
 | :---------- | :--------------- | :---------------- | :----------------------- | :---------------------------- |
@@ -74,21 +74,19 @@ else:
 
 [2] D. P. Kingma and J. Ba, "Adam: A method for stochastic optimization," in *Proc. 3rd Int. Conf. Learn. Represent. (ICLR)*, 2015. [Online]. Available: <https://arxiv.org/abs/1412.6980>
 
-[3] J. Kunstner, P. Hennig, and L. Balles, "Limitations of the empirical Fisher approximation for natural gradient descent," in *Proc. Adv. Neural Inf. Process. Syst. (NeurIPS)*, 2019, pp. 4153–4164.
+[3] K. Jordan, Y. Jin, V. Boza, J. You, F. Cesista, L. Newhouse, and J. Bernstein, "Muon: An optimizer for hidden layers in neural networks," 2024. [Online]. Available: <https://kellerjordan.github.io/posts/muon/>
 
-[4] K. Jordan, Y. Jin, V. Boza, J. You, F. Cesista, L. Newhouse, and J. Bernstein, "Muon: An optimizer for hidden layers in neural networks," 2024. [Online]. Available: <https://kellerjordan.github.io/posts/muon/>
+[4] Z. Li, L. Liu, C. Liang, W. Chen, and T. Zhao, "ROOT: Robust orthogonalized optimizer for neural network training," *arXiv preprint arXiv:2511.20626*, 2025.
 
-[5] Z. Li, L. Liu, C. Liang, W. Chen, and T. Zhao, "ROOT: Robust orthogonalized optimizer for neural network training," *arXiv preprint arXiv:2511.20626*, 2025.
+[5] L. S. Vygotsky, *Mind in society: The development of higher psychological processes*. Cambridge, MA: Harvard University Press, 1978.
 
-[6] L. S. Vygotsky, *Mind in society: The development of higher psychological processes*. Cambridge, MA: Harvard University Press, 1978.
+[6] C. Si, D. Zhang, and W. Shen, "AdaMuon: Adaptive Muon optimizer," *arXiv preprint arXiv:2507.11005*, 2025. [Online]. Available: <https://arxiv.org/abs/2507.11005>
 
-[7] C. Si, D. Zhang, and W. Shen, "AdaMuon: Adaptive Muon optimizer," *arXiv preprint arXiv:2507.11005*, 2025. [Online]. Available: <https://arxiv.org/abs/2507.11005>
-
-[8] Z. Li, L. Liu, C. Liang, W. Chen, and T. Zhao, "NorMuon: Making Muon more efficient and scalable," *arXiv preprint arXiv:2510.05491*, 2025. [Online]. Available: <https://arxiv.org/abs/2510.05491>
+[7] Z. Li, L. Liu, C. Liang, W. Chen, and T. Zhao, "NorMuon: Making Muon more efficient and scalable," *arXiv preprint arXiv:2510.05491*, 2025. [Online]. Available: <https://arxiv.org/abs/2510.05491>
 
 ---
 
-## 后续实验：Wikitext Line Mode
+## 后续实验1：Wikitext Line Mode
 
 2025-11-28 的实验为 `RMSuon` 的优越性提供了更丰富的证据。当结合更优的数据预处理策略——即保持句子语义完整性的 **Line Mode**（首次适应递减贪心打包）时，`RMSuon` 展现出了对 `Muon` 的“降维打击”式性能优势。
 
@@ -109,6 +107,33 @@ else:
 
 `RMSuon` 在第一个 epoch 的困惑度（PPL）就接近了 `Muon` 训练多个 epoch 后的最终水平，并在第三个 epoch 达到了 `Muon` 无法企及的 99.07 的最佳表现。这一结果不仅证实了 `RMSuon` 在统计-结构协同上的理论优势，更揭示了其在与高质量数据模式结合时的巨大潜力。
 
-### 理论意义
+---
 
-此结果经验性地支持了 IPWT 的核心观点：**意识的内容是协同信息（CI），其总量是整合度（Ω）**。`Line mode` 通过保持句子边界，最大化了每个上下文窗口内信息的**逻辑不可约性**，从而提供了一个更纯净、更高效的“整合信息”输入。`RMSuon` 通过其能量-几何解耦机制，能够最有效地利用这些高整合度的数据，实现更快速、更稳定的自由能最小化。
+## 后续实验2：长期训练的收敛极速与过拟合
+
+### Epoch 30 Marathon 实验
+
+延长训练至30个epoch揭示了RMSuon的双刃剑特性：
+
+| 指标 | Muon (30 epochs) | RMSuon (30 epochs) |
+| :--- | :--- | :--- |
+| **最佳PPL** | 330.10 (Epoch 6) | **190.63** (Epoch 3) |
+| **最终PPL** | 587.46 (Epoch 21) | **54930.33** (Epoch 30) |
+
+**关键发现**：
+
+1. **收敛速度**：RMSuon在第3epoch达到最佳性能，比Muon快2倍
+2. **过拟合严重性**：从最佳到最终，RMSuon的PPL恶化了**288倍**，而Muon仅恶化1.8倍
+3. **梯度动力学**：RMSuon的梯度范数从1.82爆炸至4.81，表明几何约束逐渐失效
+
+### 无权重衰减实验 (wd=0)
+
+移除权重衰减进一步暴露了RMSuon的固有缺陷：
+
+| 指标 | RMSuon (wd=0.1) | RMSuon (wd=0) |
+| :--- | :--- | :--- |
+| **最佳PPL** | 190.63 (Epoch 3) | **191.85** (Epoch 3) |
+| **第8epoch PPL** | 898.69 | **1037.25** |
+
+**理论分析**：
+RMSuon的能量-几何解耦机制在缺乏权重衰减时表现出**几何信任区崩溃**。Newton-Schulz正交化虽然提供了初始的几何稳定性，但无法抵御长期的统计噪声累积。weight decay 充当了**几何正则化器**，补偿了结构算子在长期训练中的衰减效应。

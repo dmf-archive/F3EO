@@ -24,6 +24,15 @@ class Trainer:
         self.store = MetricStore()
         self.context: TrainerContext | None = None
 
+        # EMA-PPL state
+        self.adaptive_wd_config = self.config.get("adaptive_wd", {})
+        self.adaptive_wd_enabled = self.adaptive_wd_config.get("enabled", False)
+        if self.adaptive_wd_enabled:
+            self.ema_ppl = 0.0
+            self.ema_beta = self.adaptive_wd_config.get("ema_beta", 0.99)
+            self.wd_gamma = self.adaptive_wd_config.get("gamma", 0.1)
+            self.wd_base = self.adaptive_wd_config.get("base_wd", 1e-4)
+
     def _broadcast(self, event: str):
         for cb in self.callbacks:
             getattr(cb, event)(self.context)
@@ -93,8 +102,23 @@ class Trainer:
                         optimizer_handles_backward=optimizer_tags.get("requires_loss_for_step", False)
                     )
 
+                    if self.adaptive_wd_enabled:
+                        ppl_batch = torch.exp(loss_tensor.detach()).item()
+                        if self.ema_ppl == 0.0:
+                            self.ema_ppl = ppl_batch
+                        else:
+                            self.ema_ppl = self.ema_beta * self.ema_ppl + (1 - self.ema_beta) * ppl_batch
+                        
+                        # Inverse PPL-Coupled Weight Decay (iPCWD)
+                        # A linear relationship is more stable than exponential
+                        adaptive_wd = self.wd_base * (1 + self.wd_gamma * self.ema_ppl)
+                        
+                        for group in self.optimizer.param_groups:
+                            group['weight_decay'] = adaptive_wd
+
+                    closure = lambda: loss_tensor
                     if optimizer_tags.get("requires_loss_for_step", False):
-                        self.optimizer.step(loss_tensor)
+                        self.optimizer.step(closure)
                     else:
                         self.optimizer.step()
 
