@@ -24,19 +24,16 @@ class Trainer:
         self.store = MetricStore()
         self.context: TrainerContext | None = None
 
-        # Adaptive Weight Decay States
         self.adaptive_wd_config = self.config.get("adaptive_wd", {})
         self.adaptive_wd_enabled = self.adaptive_wd_config.get("enabled", False)
         if self.adaptive_wd_enabled:
             self.wd_mode = self.adaptive_wd_config.get("mode", "ipcwd")
             self.ema_beta = self.adaptive_wd_config.get("ema_beta", 0.98)
 
-            # State for Inverse PPL-Coupled Weight Decay (iPCWD)
             self.ema_ppl = 0.0
             self.wd_gamma = self.adaptive_wd_config.get("gamma", 0.1)
             self.wd_base = self.adaptive_wd_config.get("base_wd", 1e-4)
 
-            # State for Proportional-Control Weight Decay (PC-WD)
             self.ema_loss = 0.0
             self.pcwd_alpha = self.adaptive_wd_config.get("alpha", 0.01)
             self.lambda_min = self.adaptive_wd_config.get("lambda_min", 0.01)
@@ -124,7 +121,7 @@ class Trainer:
                             adaptive_wd = self.wd_base * (1 + self.wd_gamma * self.ema_ppl)
 
                         elif self.wd_mode == "pcwd":
-                            if self.current_lambda < 0:  # First step initialization
+                            if self.current_lambda < 0:
                                 self.current_lambda = self.optimizer.param_groups[0]['weight_decay']
 
                             if self.ema_loss == 0.0:
@@ -137,9 +134,9 @@ class Trainer:
 
                             control_signal = -torch.log(torch.abs(torch.tensor(delta_loss)) + 1e-8).item()
 
-                            if delta_loss < 0:  # Loss is decreasing
+                            if delta_loss < 0:
                                 self.current_lambda *= (1 + self.pcwd_alpha * control_signal)
-                            else:  # Loss is increasing or stagnant
+                            else:
                                 self.current_lambda /= (1 + self.pcwd_alpha * control_signal)
 
                             adaptive_wd = torch.clamp(torch.tensor(self.current_lambda), self.lambda_min, self.lambda_max).item()
@@ -195,7 +192,6 @@ class Trainer:
 
                 avg_grad_norm_tensor = None
                 if epoch_grad_norm_list:
-                    # Ensure all items are tensors before stacking
                     tensor_list = [t for t in epoch_grad_norm_list if isinstance(t, torch.Tensor)]
                     if tensor_list:
                         avg_grad_norm_tensor = torch.stack(tensor_list).mean()

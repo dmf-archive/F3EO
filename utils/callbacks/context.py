@@ -12,10 +12,6 @@ from utils.data import MetricStore
 
 @dataclass
 class TrainerContext:
-    """
-    Holds the runtime state of the training process.
-    Passed to callbacks to provide typed access to training data.
-    """
     # Static Configuration
     config: dict[str, Any]
     output_dir: Path

@@ -28,7 +28,6 @@ def get_dataset_size_from_tensor(file_path: Path) -> int:
 
 if __name__ == "__main__":
     try:
-        # Path to the preprocessed training data tensor
         data_path = Path("./data/cache/wikitext2_train_line_pack_ids_v3.pt")
 
         wikitext2_train_size = get_dataset_size_from_tensor(data_path)

@@ -13,7 +13,6 @@ def pack_sequences_greedy(texts: list[str], tokenizer: Tokenizer, max_length: in
     for text in texts:
         if not text or not text.strip():
             continue
-        # Replace nltk with simple split
         sentences = text.replace('\n', ' ').split('.')
         for sent in sentences:
             sent = sent.strip()

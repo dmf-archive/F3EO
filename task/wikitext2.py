@@ -50,7 +50,6 @@ def concatenate_and_chunk(texts: list[str], tokenizer: Tokenizer, block_size: in
             tokens = tokenizer.encode(text).ids
             all_tokens.extend(tokens)
 
-    # Truncate to a multiple of block_size
     num_tokens = (len(all_tokens) // block_size) * block_size
     all_tokens_tensor = torch.tensor(all_tokens[:num_tokens], dtype=torch.long)
 

@@ -51,7 +51,6 @@ def _calculate_energy_and_momentum(
 
     denom = v_hat.sqrt().add_(eps)
 
-    # This is memory-intensive, but we need the norm
     adam_update = m_hat.div(denom)
     energy = adam_update.norm()
 
@@ -88,8 +87,6 @@ def adamw_step_kernel(
 
 class RMSuon(torch.optim.Optimizer):
     def __init__(self, params, **kwargs):
-        # This optimizer is designed to be initialized via a factory that prepares param_groups.
-        # The `__init__` is simplified to accept pre-structured param_groups.
         defaults = {
             'lr': 1e-3,
             'betas': (0.9, 0.999),
@@ -97,8 +94,6 @@ class RMSuon(torch.optim.Optimizer):
             'weight_decay': 0.01,
             'ns_steps': 5,
         }
-        # The factory will set group-specific hyperparams.
-        # We only need to pass the params (which are already groups) and a default dict.
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -142,24 +137,17 @@ class RMSuon(torch.optim.Optimizer):
             exp_avg = state['exp_avg']
             exp_avg_sq = state['exp_avg_sq']
 
-            # Step 1: Update stats (lightweight, JIT-able)
             _update_adam_stats(exp_avg, exp_avg_sq, grad, beta1, beta2)
 
-            # Step 2: Calculate energy and bias-corrected momentum (heavier)
             m_hat, energy = _calculate_energy_and_momentum(exp_avg, exp_avg_sq, step, beta1, beta2, eps)
-
-            # Step 3: Orthogonalize
             original_shape = m_hat.shape
             m_hat_flat = m_hat.view(m_hat.size(0), -1) if p.ndim == 4 else m_hat
 
-            # Note: The performance bottleneck might be the CPU->GPU transfer if m_hat is not on the correct device
-            # or the data type conversion inside zeropower. Let's assume m_hat is on the correct device.
             O = zeropower_via_newtonschulz5(m_hat_flat, steps=ns_steps)
 
             if p.ndim == 4:
                 O = O.view(original_shape)
 
-            # Step 4: Apply update
             base_energy = O.norm().add_(1e-10)
             scale = energy / base_energy
 
