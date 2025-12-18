@@ -105,7 +105,7 @@ class Trainer:
                     logits, loss_tensor, _ = current_task.train_step(
                         model=self.model, batch=batch, criterion=self.criterion,
                         device=self.device,
-                        needs_second_order=optimizer_tags.get("requires_second_order", False)
+                        needs_second_order=optimizer_tags.get("d_2_backward_requires_second_order", False)
                     )
 
                     if self.adaptive_wd_enabled:
@@ -146,10 +146,40 @@ class Trainer:
                             group['weight_decay'] = adaptive_wd
 
                     self.optimizer.zero_grad()
-                    if not optimizer_tags.get("handles_backward_pass", False):
-                        loss_tensor.backward(create_graph=optimizer_tags.get("requires_second_order", False))
+                    # For optimizers that don't handle their own backward pass, do it here.
+                    # Note: SAF_RMSuon will require create_graph=True and will handle its own second backward pass.
+                    if not optimizer_tags.get("d_2_backward_handles_itself", False) and not optimizer_tags.get("d_1_step_requires_closure_eval_logits", False):
+                        loss_tensor.backward(create_graph=optimizer_tags.get("d_2_backward_requires_second_order", False))
 
-                    if optimizer_tags.get("requires_loss_for_step", False):
+                    # Define closures for optimizers that need them
+                    def loss_closure():
+                        # Used for SAM-like optimizers
+                        logits, loss, _ = current_task.train_step(
+                            model=self.model, batch=batch, criterion=self.criterion,
+                            device=self.device,
+                            needs_second_order=optimizer_tags.get("d_2_backward_requires_second_order", False)
+                        )
+                        if not optimizer_tags.get("d_2_backward_handles_itself", False):
+                            loss.backward(create_graph=optimizer_tags.get("d_2_backward_requires_second_order", False))
+                        return loss
+
+                    def logits_closure():
+                        # Used for SAF-like optimizers
+                        logits, loss, _ = current_task.train_step(
+                            model=self.model, batch=batch, criterion=self.criterion,
+                            device=self.device,
+                            needs_second_order=True # SAF needs the graph for the second backward
+                        )
+                        # The first backward pass is done here to create the graph
+                        if not optimizer_tags.get("d_2_backward_handles_itself", False):
+                             loss.backward(create_graph=True)
+                        return loss, logits
+
+                    if optimizer_tags.get("d_1_step_requires_closure_eval_loss", False):
+                        self.optimizer.step(loss_closure)
+                    elif optimizer_tags.get("d_1_step_requires_closure_eval_logits", False):
+                        self.optimizer.step(logits_closure)
+                    elif optimizer_tags.get("d_1_step_requires_loss_tensor", False):
                         self.optimizer.step(loss_tensor)
                     else:
                         self.optimizer.step()

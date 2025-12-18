@@ -181,7 +181,7 @@ class Wikitext2Task(BaseTask):
             if torch.isnan(loss) or torch.isinf(loss):
                 raise RuntimeError(f"NaN/Inf loss detected: {loss.item()}")
 
-        return output.detach(), loss, {}
+        return output, loss, {}
 
     def validate_epoch(self, model: nn.Module, valid_loader: DataLoader,
                        criterion: nn.Module, device: torch.device) -> dict[str, float]:

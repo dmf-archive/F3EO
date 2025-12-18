@@ -1,186 +1,107 @@
 # RMSuon: Energy-Geometry Decoupling Optimizer
 
-状态: 生产就绪 (2025-11-28)
-核心贡献: FEP/IPWT 框架下 SOO-OFE 路径的工程实现
+**状态**: 生产就绪 (2025-11-28)  
+**核心贡献**: FEP/IPWT 框架下 SOO-OFE 路径的工程实验，确立了“能量-几何解耦”的算子复合范式。
 
-## 能量-几何解耦的感知推断
+## 1. 核心理论：能量-几何解耦
 
-`RMSuon` 是 FEP/IPWT [1] 框架下 `SOO-OFE` 路径的工程实现，其算子复合范式构成了对感知推断过程的最简可行近似：
+RMSuon 是对感知推断过程的最简工程近似，通过算子复合解决 OFE-EFE 对偶性危机：
 
-1. 统计算子 (AdamW)：`energy = ||m̂ / (√v̂ + ε)||` 作为标量化的观测自由能下降速率指标。在 PyTorch 实现中，这对应于 `torch.norm()`，其计算结果在数值上等价于 `Frobenius` 范数 (`||·||_F`)。`AdamW` [2] 通过其二阶矩 `v` 近似 Fisher 信息矩阵的对角线，因此 `energy` 编码了参数沿自然梯度方向更新的统计强度，直接关联变分自由能 `F` 的瞬时下降。
+- **统计算子 (AdamW)**: 提供 **Energy (能量)**。
+  - 计算 `energy = ||m̂ / (√v̂ + ε)||` (Frobenius 范数)。
+  - 物理含义：量化参数沿自然梯度方向更新的统计强度，即“自然梯度下降”。
+- **结构算子 (Muon)**: 提供 **Geometry (几何)**。
+  - 计算 `O_t = NewtonSchulz(m̂)`。
+  - 物理含义：在参数流形上构建信息几何信任区，强制更新轨迹满足最小描述长度原则，即“无冗余更新”。
+- **解耦机制**:
+  - `g_update = scale * O_t`
 
-2. 结构算子 (Muon)：`Newton-Schulz` 正交化 [3] 在参数流形上构建信息几何信任区 [4]，通过谱范数约束更新复杂度，契合 FEP 的最小描述长度原则——更新轨迹必须最简洁。如同维果茨基的"最近发展区 (ZPD)" [5]，Muon 在谱范数信任区内进行最安全的探索，确保几何稳定性。
+## 2. 算法实现与对比
 
-3. 能量-几何解耦：`g_update = scale * O_t` 将"走多快"（`energy` 决定的 OFE 强度）与"往哪走"（`O_t` 决定的几何约束）进行功能性非线性解耦，使优化器无需未来模拟即可沿近似测地线滑行，解决 `OFE-EFE` 对偶性危机。
-
-从信息几何视角，这相当于在参数空间中执行感知推断：在 `O_t` 定义的最简洁轨迹上，以 `energy` 决定的最优步长，主动最小化观测自由能 `F`。
-
-## 算法实现
+### 核心代码逻辑
 
 ```python
-# 无参数组标签下的启发式分类策略
 if param.ndim >= 2:
-    # RMSuon通道: 2D矩阵参数
-    m_t = β1*m_{t-1} + (1-β1)*g_t
-    v_t = β2*v_{t-1} + (1-β2)*g_t²
-    m̂_t = m_t / (1-β1^t)
-    v̂_t = v_t / (1-β2^t)
-
-    energy = ||m̂_t / (√v̂_t + ε)||  # Numerically equivalent to Frobenius norm
-    O_t = NewtonSchulz(m̂_t, steps=5)
-    scale = energy / (||O_t||_F + 1e-10)
-
-    param ← param * (1 - η*λ) - η*scale*O_t
+    # 1. 统计步：获取 AdamW 动量
+    m_t, v_t = adamw_step(g_t)
+    m_hat, v_hat = bias_correction(m_t, v_t)
+    
+    # 2. 解耦步：提取能量与几何 (AdaRMSuon 修正版)
+    m_scaled = m_hat / (sqrt(v_hat) + eps)  # 预白化
+    energy = norm(m_scaled)                 # 提取能量
+    O_t = newton_schulz(m_scaled)           # 提取几何
+    
+    # 3. 复合步
+    scale = energy / (norm(O_t) + eps)
+    param = param - lr * scale * O_t
 else:
-    # AdamW通道: 1D/Embedding参数
     standard_adamw_update()
 ```
 
-## 与 `Muon` 家族的理论分野
+### Muon 家族谱系
 
-`RMSuon`、`AdaMuon` [6] 和 `NorMuon` [7] 共同确立了统计-结构算子复合作为下一代优化器的核心范式。它们的关键区别在于自适应性的粒度与实现机制。
+| 优化器 | 核心机制 | 适应性粒度 | 理论特征 |
+| :--- | :--- | :--- | :--- |
+| **RMSuon** | 能量-几何解耦 | **层级 (Layer-wise)** | 保持正交流形拓扑完整性，物理图像最清晰 |
+| **AdaMuon** | 方差自适应 | 元素级 (Element-wise) | 引入 Sign 变换，理论推导严谨 |
+| **NorMuon** | 神经元均衡 | 神经元级 (Neuron-wise) | 解决神经元范数不均衡问题 |
 
-| 优化器      | 核心机制         | 统计源 (Energy)   | 结构约束 (Geometry)      | 适应性粒度                    |
-| :---------- | :--------------- | :---------------- | :----------------------- | :---------------------------- |
-| RMSuon  | 能量-几何解耦    | AdamW 能量范数    | Muon 正交化              | 层级 (Layer-wise)         |
-| AdaMuon | 方差自适应正交化 | AdamW 二阶矩 `√v̂` | Muon 正交化 + Sign 变换  | 元素级 (Element-wise)     |
-| NorMuon | 神经元均衡正交化 | 二阶动量统计      | Muon 正交化 + 行式归一化 | 神经元/行级 (Neuron-wise) |
+- **关键洞察**: 实验证明，逐元素自适应（如 `diag(1/√v) * O_t`）会破坏正交流形的等距性（σ₁ ≠ 1）。RMSuon 坚持层级耦合，在 Wikitext-2 上表现优于破坏拓扑结构的变体。
 
-- 性能: `AdaMuon` 和 `NorMuon` 的实验均表明，在大型语言模型预训练中，它们比 `Muon` 和 `AdamW` 更高效。`NorMuon` 的消融实验暗示，神经元级的自适应可能比元素级更优，因为它更符合神经网络的功能结构。
-- 理论: `AdaMuon` 对其 `Sign` 变换的必要性给出了形式化证明，理论推导最为严谨。`NorMuon` 从“神经元范数不均衡”的经验观察出发，问题导向性最强。`RMSuon` 的“能量-几何解耦”物理图像最清晰，概念上最为优雅，并和变分自由能流形完美契合。最新的实验证据（2025-11-28）进一步强化了 `RMSuon` 的层级耦合假设，证明了保持正交流形结构的完整性优于盲目的微观自适应。
+## 3. 实验演进记录
 
-### 补充：正交性与逐元素自适应性的互斥
+### 阶段一：Wikitext-2 Line Mode
 
-**第一性原理：** Newton-Schulz 迭代强制 O_t 的谱范数 σ₁(O_t) = 1（保证等距性）。叠加逐元素缩放 diag(1/√v̂) 等价于左乘对角矩阵，使得 σ₁(D · O_t) = σ₁(D) · 1 ≠ 1，因此破坏了正交流形的拓扑不变性。
+验证了 RMSuon 在高质量数据模式下的绝对优势。
 
-**验证实验：** 实现此方案时，Epoch 1 PPL 掉至 ~417（等同 Muon 无自适应的表现），完全符合理论预测——这证实了推导正确性，而非发现新现象。
+- **实验设置**: Qwen3 (RoPE), Context 255, Line Mode (按句打包)。
+- **关键结果**:
+  - **Epoch 1 PPL**: RMSuon (**146.52**) vs Muon (233.30)。RMSuon 首轮即达到 Muon 最终水平。
+  - **Best PPL**: RMSuon (**99.07** @ Ep3) vs Muon (161.09 @ Ep5)。
+- **结论**: 统计-结构协同带来了收敛速度与最终性能的双重飞跃。
 
-正确的方式是 "Scalar Energy Injection into Orthogonal Structure"：
+### 阶段二：AdaRMSuon
 
-- Adam 提供 Global Energy：`||m̂ / √v̂||_F` 测量当前优化地形的宏观“统计坡度”。
-- Muon 提供 Structured Variance：处理参数内部的复杂相关性，决定“往哪个方向走最稳”。
-二者在层级 (Layer-wise) 而非元素级 (Element-wise) 进行耦合。实验表明，逐元素自适应会导致 Epoch 1 的 PPL 退化至 ~417（Muon 水平），而层级化耦合可直接达到 ~297，证明了保持正交流形拓扑完整性的必要性。
+修正了原始 RMSuon 实现中的理论不一致性。
 
-## 工程特性
+- **修正点**: 能量提取和几何正交化均作用于经过 Fisher 预白化的“自然梯度” `m_scaled`，而非原始动量 `m_hat`。
+- **关键结果**:
+  - **Best PPL**: AdaRMSuon (**83.88**) vs RMSuon (99.07)。
+- **结论**: 理论闭环直接转化为显著的性能增益，确立 AdaRMSuon 为新基线。
 
-- 内存效率: 优化器状态大小与 AdamW 相当。
-- 计算开销: 与Muon相当，主要来自 Newton-Schulz 迭代。
-- 参数分组: 自动识别 2D 矩阵参数应用 `RMSuon`，对 1D/Embedding 等参数则回退至 `AdamW`。
-- 零超参迁移: 可直接复用 `AdamW` 的学习率与调度策略，极大降低了应用门槛。
+### 阶段三：Long-term Stability
 
-## 参考文献
+通过 30 Epoch 长跑实验，揭示了当前框架的理论边界。
 
-[1] L. Rui, "Integrated Predictive Workspace Theory: Towards a Unified Framework for the Science of Consciousness," Zenodo, 2025. doi: 10.5281/zenodo.15676304.
+- **现象**:
+  - **极速收敛**: Epoch 3 达到峰值，速度是 Muon 的 2 倍。
+  - **灾难性过拟合**: PPL 从最佳的 190 恶化至 **54930** (Epoch 30)，恶化倍数达 288 倍（Muon 仅 1.8 倍）。
+  - **梯度爆炸**: 梯度范数从 1.82 攀升至 4.81，几何约束失效。
+- **消融实验 (无权重衰减)**:
+  - WD=0 时，PPL 在 Epoch 8 即劣化至 1037。
+  - 证明 Weight Decay 充当了必要的“几何正则化器”，补偿结构算子的长期衰减。
 
-[2] D. P. Kingma and J. Ba, "Adam: A method for stochastic optimization," in *Proc. 3rd Int. Conf. Learn. Represent. (ICLR)*, 2015. [Online]. Available: <https://arxiv.org/abs/1412.6980>
+## 4. 理论边界分析
 
-[3] K. Jordan, Y. Jin, V. Boza, J. You, F. Cesista, L. Newhouse, and J. Bernstein, "Muon: An optimizer for hidden layers in neural networks," 2024. [Online]. Available: <https://kellerjordan.github.io/posts/muon/>
+RMSuon/AdaRMSuon 的成功与失败均源于同一个根源：它依然是 **Loss 优化器** 而非 **Free Energy 优化器**。
 
-[4] Z. Li, L. Liu, C. Liang, W. Chen, and T. Zhao, "ROOT: Robust orthogonalized optimizer for neural network training," *arXiv preprint arXiv:2511.20626*, 2025.
+- **自由能公式**: `F = D_KL[q(θ|o) || p(θ)] (复杂度) - E_q[ln p(o|θ)]` (准确度)
+- **代理谬误**: RMSuon 将 ∇L（准确度梯度）作为 ∇F 的完全代理，忽略了复杂度项 D_KL。
+- **动力学后果**:
+  - **短期**: 欠拟合阶段 ∇L 主导，RMSuon 凭借几何效率极速收敛。
+  - **长期**: 过拟合阶段 `D_KL` 约束缺失，优化器高效地将模型推向高复杂度的过拟合区域。
 
-[5] L. S. Vygotsky, *Mind in society: The development of higher psychological processes*. Cambridge, MA: Harvard University Press, 1978.
+## 5. 未来展望
 
-[6] C. Si, D. Zhang, and W. Shen, "AdaMuon: Adaptive Muon optimizer," *arXiv preprint arXiv:2507.11005*, 2025. [Online]. Available: <https://arxiv.org/abs/2507.11005>
+1. **在线复杂度估计**: 开发能内生整合 `∇D_KL` 信号的机制，弥合 L 与 F 的鸿沟。
+2. **数据标准化**: 所有语言模型实验默认采用 `line mode`，确保语义完整性。
+3. **基线升级**: 全面切换至 `AdaRMSuon` 实现。
 
-[7] Z. Li, L. Liu, C. Liang, W. Chen, and T. Zhao, "NorMuon: Making Muon more efficient and scalable," *arXiv preprint arXiv:2510.05491*, 2025. [Online]. Available: <https://arxiv.org/abs/2510.05491>
+## 6. 参考文献
 
----
-
-## 后续实验1：Wikitext Line Mode
-
-2025-11-28 的实验为 `RMSuon` 的优越性提供了更丰富的证据。当结合更优的数据预处理策略——即保持句子语义完整性的 **Line Mode**（首次适应递减贪心打包）时，`RMSuon` 展现出了对 `Muon` 的“降维打击”式性能优势。
-
-### 实验设置
-
-- **任务**: Wikitext-2 语言建模
-- **模型**: 基于 RoPE 的 Qwen3 架构 (4 层, 512 维, 6 头)
-- **上下文长度**: 255
-- **优化器**: `RMSuon` vs `Muon`
-- **数据模式**: `line mode` (按句打包)
-
-### 关键结果
-
-| 指标 | Muon (Line Mode) | RMSuon (Line Mode) |
-| :--- | :--- | :--- |
-| **Epoch 1 PPL** | 233.30 | 146.52 |
-| **Best PPL** | 161.09 (Epoch 5) | **99.07** (Epoch 3) |
-
-`RMSuon` 在第一个 epoch 的困惑度（PPL）就接近了 `Muon` 训练多个 epoch 后的最终水平，并在第三个 epoch 达到了 `Muon` 无法企及的 99.07 的最佳表现。这一结果不仅证实了 `RMSuon` 在统计-结构协同上的理论优势，更揭示了其在与高质量数据模式结合时的巨大潜力。
-
----
-
-## 后续实验2：长期训练的收敛极速与过拟合
-
-### Epoch 30 Marathon 实验
-
-延长训练至30个epoch揭示了RMSuon的双刃剑特性：
-
-| 指标 | Muon (30 epochs) | RMSuon (30 epochs) |
-| :--- | :--- | :--- |
-| **最佳PPL** | 330.10 (Epoch 6) | **190.63** (Epoch 3) |
-| **最终PPL** | 587.46 (Epoch 21) | **54930.33** (Epoch 30) |
-
-**关键发现**：
-
-1. **收敛速度**：RMSuon在第3epoch达到最佳性能，比Muon快2倍
-2. **过拟合严重性**：从最佳到最终，RMSuon的PPL恶化了**288倍**，而Muon仅恶化1.8倍
-3. **梯度动力学**：RMSuon的梯度范数从1.82爆炸至4.81，表明几何约束逐渐失效
-
-### 无权重衰减实验 (wd=0)
-
-移除权重衰减进一步暴露了RMSuon的固有缺陷：
-
-| 指标 | RMSuon (wd=0.1) | RMSuon (wd=0) |
-| :--- | :--- | :--- |
-| **最佳PPL** | 190.63 (Epoch 3) | **191.85** (Epoch 3) |
-| **第8epoch PPL** | 898.69 | **1037.25** |
-
-**理论分析**：
-RMSuon的能量-几何解耦机制在缺乏权重衰减时表现出**几何信任区崩溃**。Newton-Schulz正交化虽然提供了初始的几何稳定性，但无法抵御长期的统计噪声累积。weight decay 充当了**几何正则化器**，补偿了结构算子在长期训练中的衰减效应。
-
----
-
-## 理论边界：损失函数测地线 vs. 自由能测地线
-
-尽管 `RMSuon` 在早期训练中表现出色，但长期的 `epoch30` 实验揭示了其根本的理论边界。`RMSuon` 的优化目标是**损失函数 `L`**，而非完整的**变分自由能 `F`**。
-
-`F = D_KL[q(θ|o) || p(θ)] - E_q[ln p(o|θ)] = 复杂度 - 准确度`
-
-1.  **代理错误**: `RMSuon` 将损失函数 `L`（准确度的代理）的梯度 `∇L` 作为自由能梯度 `∇F` 的完全代理，而完全忽略了对模型**复杂度项 `D_KL`** 的考量。
-2.  **短期有效性**: 在训练初期，模型欠拟合，`∇L` 信号占主导地位。`RMSuon` 凭借其高效的几何优化能力，能快速找到 `L` 的最优下降路径，因此收敛速度极快。
-3.  **长期失效**: 随着训练深入，模型开始过拟合，此时 `D_KL` 项变得至关重要，它需要抑制模型复杂度的无序增长。由于 `RMSuon` 缺乏对 `D_KL` 的内在、自适应建模，它只能依赖于外部的、固定的 L2 权重衰减来近似这一作用。一旦 `∇L` 的信号指向过拟合区域，`RMSuon` 便会高效地将模型推向灾难性的性能崩溃，如 `epoch30` 实验中 PPL 从 190 爆炸至 54930 所证实的。
-
-**结论**: `RMSuon` 是一个在**损失函数 `L` 流形**上极其高效的二阶优化器，但它不是一个完备的**自由能 `F` 优化器**。它解决了“如何走得最稳”的问题，但没有解决“应该往哪里走”的根本问题。
-
-## 未来展望
-
-`F3EO` 的下一阶段核心任务，是弥合损失函数 `L` 与变分自由能 `F` 之间的鸿沟。我们需要开发一种能够**在线估计并优化模型复杂度**的机制，将 `∇D_KL` 的信号内生地整合进优化器中。
-
-所有未来的语言模型相关实验，将默认采用 `line mode` 数据处理，以确保数据输入的语义完整性，为更精确的理论验证提供坚实基础。
-
----
-
-## 后续实验3：AdaRMSuon 的理论一致性
-
-对 `RMSuon` 源码的进一步审计揭示了其原始实现与“能量-几何解耦”理论描述之间的偏差。`AdaRMSuon` 变体修正了这一点，提供了更符合理论的实现，并带来了显著的性能提升。
-
-### 理论与实现修正
-
-- **`RMSuon` (原始实现)**:
-  - 能量计算: `energy = ||m_hat / √v_hat||`
-  - 结构算子: `O_t = NewtonSchulz(m_hat)`
-  - **问题**: 能量提取和几何正交化作用于不同的动量形式，理论上不一致。
-
-- **`AdaRMSuon` (修正实现)**:
-  - 预白化: `m_scaled = m_hat / √v_hat` (Fisher 对角近似)
-  - 能量计算: `energy = ||m_scaled||`
-  - 结构算子: `O_t = NewtonSchulz(m_scaled)`
-  - **修正**: 能量提取和几何正交化均作用于经过 Fisher 预白化的“自然梯度”`m_scaled`，实现了理论上的闭环。
-
-### 关键结果 (`wikitext2_line_rope`)
-
-| 指标 | RMSuon (wd=0.1) | AdaRMSuon (wd=0.1) |
-| :--- | :--- | :--- |
-| **最佳PPL** | 99.07 (Epoch 3) | **83.88** (Epoch 4) |
-
-`AdaRMSuon` 在 `line mode` 任务上取得了比原始 `RMSuon` 更低的困惑度，证明了理论一致性的修正能直接转化为性能增益。这进一步强化了“能量-几何解耦”范式的正确性，并确立了 `AdaRMSuon` 作为未来实验的基线。
+- [1] L. Rui, "Integrated Predictive Workspace Theory," Zenodo, 2025.
+- [2] Kingma & Ba, "Adam: A method for stochastic optimization," ICLR 2015.
+- [3] Jordan et al., "Muon: An optimizer for hidden layers in neural networks," 2024.
+- [4] Li et al., "ROOT: Robust orthogonalized optimizer," arXiv:2511.20626.
+- [5] Si et al., "AdaMuon: Adaptive Muon optimizer," arXiv:2507.11005.
+- [6] Li et al., "NorMuon: Making Muon more efficient and scalable," arXiv:2510.05491.
