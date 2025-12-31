@@ -28,6 +28,12 @@
 - **关键洞察**: 通过 Kronecker 积分解近似 Hessian，平衡计算开销与二阶信息获取。
 - **工程价值**: 作为 F3EO 对标的高性能二阶基线，提供了分布式预处理器的工程实现范式。
 
+### [`ref/Hadron.md`](ref/Hadron.md)
+
+- **核心理论**: 算子复合的二阶优化 (KFAC + Muon)。
+- **关键洞察**: 拒绝 Hessian-Fisher 谬误，通过算子复合在流形间建立连续映射。
+- **工程价值**: 验证了算子复合范式的有效性，后被更鲁棒的 `RMSuon` 取代。
+
 ## 3. 学习动力学与现象学 (Learning Dynamics & Phenomenology)
 
 ### [`ref/continual-learning/`](ref/continual-learning/)

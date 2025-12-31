@@ -1,62 +1,55 @@
-# 理论洞察：嵌套 SGD (Nested SGD) 作为 Transformer-RNN 统一范式
+# 理论洞察：从嵌套 SGD 到原生稀疏更新 (Native Sparse Update)
 
-**核心论点**: Google 的 **Titans (Nested Learning)** 与 **RWKV v7 (Goose)** 架构，尽管在实现细节上有所不同，但从第一性原理上看，均收敛于一种共同的计算范式——**嵌套 SGD (Nested SGD)**。该范式将模型的权重区分为两部分：一个在推理时保持静态的“外层权重”（Outer Weights），以及一个在推理时通过类似 SGD 的规则进行实时更新的“内层权重”（Inner Weights）。
+**核心论点**: 虽然 Google 的 **Titans** 与 **RWKV-7 (Goose)** 通过 **嵌套 SGD (Nested SGD)** 范式极大地提升了模型的长程记忆与上下文学习能力，但这种“将状态压入固定矩阵”的 Fast Weight 模式仍存在本质局限。真正的持续学习 (Continual Learning) 应摆脱预定义的固定容量瓶颈，向**原生稀疏激活 (MoE)** 与**语义路由驱动的动态更新**演进。
 
-这种“权重作为隐藏状态”的演化，本质上是将**优化过程本身（SGD）** 嵌入到了网络的前向传播中，从而实现了对上下文的动态适应。
+## 1. 范式演进：Fast Weights 的崛起与瓶颈
 
-## 1. 范式分析：双层优化视角
+### 1.1 优化的本质：推理即学习
 
-该范式可以形式化地描述为一个双层优化问题，其中内层优化在推理（Test-time）过程中实时发生：
+Nested SGD 范式将模型的权重区分为静态的“外层权重” (Outer Weights) 与推理时动态更新的“内层权重” (Inner Weights)。这种演化本质上是将优化过程本身嵌入到了前向传播中。
 
-### 1.1 外层循环 (训练阶段 / Meta-Learning)
+### 1.2 Titans: 显式的测试时记忆 (Test-Time Memorization)
 
-`θ_outer* = argmin_{θ_outer} E_{(x,y) ~ D_train} [ L(y, f(x; θ_outer, θ_inner_final)) ]`
+Titans 引入了 Neural Long-Term Memory (LMM)，其核心逻辑是在前向传播中通过梯度下降更新一组内层权重。
 
-- **目标**: 学习一组能够为内层循环提供良好归纳偏置的“元权重” `θ_outer`。
-- **过程**: 标准的反向传播训练，优化的是“学习如何学习”的能力。
+- **机制**: 利用“惊喜度” (Surprise) 驱动的动量 SGD。
+- **形式化**:
+  `S_t = beta * S_{t-1} + grad(Loss_associative)`
+  `M_t = (1 - alpha) * M_{t-1} - eta * S_t`
+- **本质**: 将序列历史编码进一个非线性的、可学习的权重空间。
 
-### 1.2 内层循环 (推理阶段 / Test-Time Training)
+### 1.3 RWKV-7: 解析式的动态状态演化
 
-`θ_inner, t = θ_inner, t-1 - η_t ∇_{θ_inner} ℓ(input_t, target_t; θ_inner, t-1)`
+RWKV-7 通过广义 Delta Rule 实现了类似的效果，但更加轻量化。
 
-- **目标**: 根据当前输入序列的统计特性快速调整 `θ_inner`，以最小化瞬时预测误差或关联损失。
-- **过程**: 一个广义的、单步或多步的梯度下降过程，将序列历史编码进权重。
+- **机制**: 向量值门控 (Vector-valued gating) 与在序学习率 (In-context learning rates)。
+- **形式化**:
+  `S_t = G_t * S_{t-1} + v_t * k_hat_t^T`
+  其中 `G_t` 包含衰减与替换逻辑，在数学上等价于一种近似的秩-1 SGD 更新。
 
-## 2. 架构实例与形式化
+## 2. 局限分析：为什么 Fast Weights 还不够？
 
-### 2.1 Google Titans: 显式的 Test-Time Memorization
+无论是 Titans 的记忆矩阵还是 RWKV-7 的递归状态，本质上都是将无限的外部信息流“挤压”进一个**固定大小 (Fixed-size)** 的预定义 MLP 或矩阵中。
 
-**引用**: Behrouz et al., "Titans: Learning to Memorize at Test Time", arXiv:2501.00663 (2025).
+- **问题**: 随着上下文增长，系统必然面临严重的灾难性遗忘或信息熵饱和。
 
-Titans 引入了 **Neural Long-Term Memory** 模块，其核心是一个受动量 SGD 驱动的内层模型：
+Nested SGD 往往涉及对整个内层权重的稠密更新 (Dense Update)。
 
-- **内层权重**: 记忆矩阵 $M_t$。
-- **关联损失 (Associative Loss)**: $ℓ_t = ‖M_{t-1}(k_t) - v_t‖^2$。
-- **更新规则 (Momentum-based SGD)**:
-  $S_t = \beta S_{t-1} + \nabla_{M} ℓ_t$
-  $M_t = (1 - \alpha) M_{t-1} - \eta S_t$
-  其中 $\alpha$ 为遗忘门 (Forgetting gate)，$\beta$ 为动量因子。
-- **分析**: Titans 是 Nested SGD 的直接实现。它通过显式的梯度下降将键值对 $(k, v)$ 写入权重，实现了线性复杂度的长程记忆。
+- **问题**: 在处理特定领域的细分语义时，更新整个矩阵不仅浪费计算资源，还会导致不相关的旧记忆被错误覆盖。
 
-### 2.2 RWKV-7 "Goose": 解析式的动态状态演化
+## 3. 未来范式：原生稀疏更新 (Native Sparse Update)
 
-**引用**: Peng et al., "RWKV-7 'Goose' with expressive dynamic state evolution", arXiv:2503.14456 (2025).
+理想的状态演化不应是“隐藏状态作为可学习权重”，而应是**模型权重即隐藏状态**。
 
-RWKV-7 通过复杂的递归算子实现了类似 SGD 的权重更新效果：
+通过引入细粒度专家混合 (MoE) 或动态稀疏架构，模型可以根据输入语义仅激活极小比例的参数。
 
-- **内层权重**: 递归状态矩阵 $S_t$。
-- **状态转移方程**:
-  $S_t = G_t \odot S_{t-1} + v_t \hat{k}_t^\top$
-- **动态几何约束 (Dynamic Recurrence)**:
-  $G_t = \text{Diag}(d_t) - \tilde{k}_t i_t^\top$
-  其中 $d_t$ 代表通道衰减，$i_t$ 代表替换强度 (Replacement strength)。
-- **分析**: RWKV-7 的更新规则可以被视为一种**近似SGD**。它将梯度计算与更新步骤融合在前向算子中，其 $\tilde{k}_t i_t^\top$ 项在数学上类似于对权重矩阵进行秩-1 的 Delta Rule 更新。
+- **Top-Any 动态激活**: 不再受限于固定的 Top-K，而是根据路由匹配度动态决定激活范围。
 
-## 3. 结论与局限
+更新不再是盲目的梯度下降，而是基于语义路由的精准写入。
 
-Titans 和 RWKV-7 共同揭示了，通过将一部分权重动态化并用 SGD 规则进行更新，可以在保持 RNN 线性复杂度的同时，实现甚至超越 Transformer 的上下文学习能力。
+- **自然演化**: 只有与当前语义相关的“专家”或“神经元”会被更新，从而在数学上实现真正的零干扰持续学习。
+- **形式化**: 更新量 `delta_theta` 仅在由路由算子 `R(x)` 定义的稀疏流形上非零。
 
-- **Titans**: 结构更通用（支持多层 MLP 记忆），更新逻辑更显式（标准 SGD），适合超长上下文。
-- **RWKV-7**: 结构更简洁（单层线性递归），更新逻辑更高效（解析递归），在推理效率上具有绝对优势。
+## 4. 结论：向计算本体论回归
 
-**未来方向**: 真正的持续学习需要内外层权重之间更深度的、基于**自由能原理 (FEP)** 的协同演化。当前的内层更新仍主要依赖于启发式的损失函数（如关联损失），而未来的演进方向是通过原生FEP优化，对完整的模型权重θ进行稀疏自然梯度更新，杜绝预定义“memory/fast weights”。
+Nested SGD 是通往 AGI 的重要阶梯，但要实现真正的永续学习，我们必须从“在套娃里优化小娃”转向“让优化过程自适应选择需要优化的部分”。
