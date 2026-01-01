@@ -3,12 +3,31 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import torch.nn as nn
+from torch.nn.modules.batchnorm import _BatchNorm
 
 from utils.data import EpochMetric, MetricStore, StepMetric, TaskMetrics
 from utils.metrics import PICalculator, compute_grad_norm
 
 from .callbacks.base import Callback
 from .callbacks.context import TrainerContext
+
+
+def disable_running_stats(model):
+    def _disable(module):
+        if isinstance(module, _BatchNorm):
+            module.backup_momentum = module.momentum
+            module.momentum = 0
+
+    model.apply(_disable)
+
+
+def enable_running_stats(model):
+    def _enable(module):
+        if isinstance(module, _BatchNorm) and hasattr(module, "backup_momentum"):
+            module.momentum = module.backup_momentum
+
+    model.apply(_enable)
 
 
 class Trainer:
@@ -102,13 +121,19 @@ class Trainer:
                     self.context.current_step_in_epoch = step
                     self._broadcast("on_step_begin")
 
-                    logits, loss_tensor, _ = current_task.train_step(
-                        model=self.model, batch=batch, criterion=self.criterion,
-                        device=self.device,
-                        needs_second_order=optimizer_tags.get("d_2_backward_requires_second_order", False)
-                    )
+                    # Execution Flow Control: Skip initial step if optimizer takes closure
+                    skip_initial = optimizer_tags.get("d_1_step_takes_closure", False)
+                    
+                    if not skip_initial:
+                        logits, loss_tensor, _ = current_task.train_step(
+                            model=self.model, batch=batch, criterion=self.criterion,
+                            device=self.device,
+                            needs_second_order=optimizer_tags.get("d_2_requires_second_order", False)
+                        )
+                    else:
+                        logits, loss_tensor = None, None
 
-                    if self.adaptive_wd_enabled:
+                    if self.adaptive_wd_enabled and loss_tensor is not None:
                         loss_item = loss_tensor.detach().item()
                         adaptive_wd = self.optimizer.param_groups[0]['weight_decay']
 
@@ -146,48 +171,63 @@ class Trainer:
                             group['weight_decay'] = adaptive_wd
 
                     self.optimizer.zero_grad()
-                    # For optimizers that don't handle their own backward pass, do it here.
-                    # Note: SAF_RMSuon will require create_graph=True and will handle its own second backward pass.
-                    if not optimizer_tags.get("d_2_backward_handles_itself", False) and not optimizer_tags.get("d_1_step_requires_closure_eval_logits", False):
-                        loss_tensor.backward(create_graph=optimizer_tags.get("d_2_backward_requires_second_order", False))
-
+                    
                     # Define closures for optimizers that need them
-                    def loss_closure():
-                        # Used for SAM-like optimizers
-                        logits, loss, _ = current_task.train_step(
+                    step_logits, step_loss = None, None
+
+                    def base_closure():
+                        nonlocal step_logits, step_loss
+                        lgt, ls, _ = current_task.train_step(
                             model=self.model, batch=batch, criterion=self.criterion,
                             device=self.device,
-                            needs_second_order=optimizer_tags.get("d_2_backward_requires_second_order", False)
+                            needs_second_order=optimizer_tags.get("d_2_requires_second_order", False)
                         )
-                        if not optimizer_tags.get("d_2_backward_handles_itself", False):
-                            loss.backward(create_graph=optimizer_tags.get("d_2_backward_requires_second_order", False))
-                        return loss
+                        # Capture the first call's results for metrics
+                        if step_logits is None:
+                            step_logits = lgt
+                        if step_loss is None:
+                            step_loss = ls
+                        return ls
 
-                    def logits_closure():
-                        # Used for SAF-like optimizers
-                        logits, loss, _ = current_task.train_step(
-                            model=self.model, batch=batch, criterion=self.criterion,
-                            device=self.device,
-                            needs_second_order=True # SAF needs the graph for the second backward
-                        )
-                        # The first backward pass is done here to create the graph
-                        if not optimizer_tags.get("d_2_backward_handles_itself", False):
-                             loss.backward(create_graph=True)
-                        return loss, logits
-
-                    if optimizer_tags.get("d_1_step_requires_closure_eval_loss", False):
-                        self.optimizer.step(loss_closure)
-                    elif optimizer_tags.get("d_1_step_requires_closure_eval_logits", False):
-                        self.optimizer.step(logits_closure)
-                    elif optimizer_tags.get("d_1_step_requires_loss_tensor", False):
-                        self.optimizer.step(loss_tensor)
+                    if optimizer_tags.get("d_1_step_takes_closure", False):
+                        if optimizer_tags.get("d_2_requires_bn_protection", False):
+                            call_count = 0
+                            def protected_closure():
+                                nonlocal call_count
+                                if call_count == 0:
+                                    enable_running_stats(self.model)
+                                else:
+                                    disable_running_stats(self.model)
+                                res = base_closure()
+                                call_count += 1
+                                return res
+                            
+                            step_output = self.optimizer.step(protected_closure)
+                            # Ensure BN stats are enabled back
+                            enable_running_stats(self.model)
+                        else:
+                            step_output = self.optimizer.step(base_closure)
+                        
+                        # Sync outer scope variables for metrics
+                        logits, loss_tensor = step_logits, step_loss
+                        if loss_tensor is None and isinstance(step_output, torch.Tensor):
+                            loss_tensor = step_output
                     else:
-                        self.optimizer.step()
+                        # For standard optimizers, and those requiring just the loss tensor.
+                        if not optimizer_tags.get("d_1_step_requires_loss_tensor", False):
+                            loss_tensor.backward(create_graph=optimizer_tags.get("d_2_requires_second_order", False))
+                        
+                        if optimizer_tags.get("d_1_step_requires_loss_tensor", False):
+                             self.optimizer.step(loss_tensor)
+                        else:
+                             self.optimizer.step()
 
                     step_metric = StepMetric(
                         task_name=task_name, global_step=self.context.global_step,
                         task_epoch=len(self.store.get_history_for_task(task_name)),
-                        step_in_epoch=step, loss=loss_tensor.item(), learning_rate=self.optimizer.param_groups[0]['lr']
+                        step_in_epoch=step,
+                        loss=loss_tensor.item() if loss_tensor is not None else 0.0,
+                        learning_rate=self.optimizer.param_groups[0]['lr']
                     )
                     self.store.add_step(step_metric)
                     self._broadcast("on_step_end")
@@ -199,7 +239,9 @@ class Trainer:
                             epoch_entropy_sum += batch_entropy
                             num_tokens_in_epoch += logits.numel()
 
-                        epoch_loss_sum += loss_tensor
+                        if loss_tensor is not None:
+                            epoch_loss_sum += loss_tensor
+                        
                         grad_norm_tensor = compute_grad_norm(self.model, return_tensor=True)
                         if grad_norm_tensor is not None:
                             epoch_grad_norm_list.append(grad_norm_tensor)

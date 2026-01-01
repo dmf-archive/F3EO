@@ -13,3 +13,9 @@
 [submodule "ref/shampoo"]
 	path = ref/shampoo
 	url = https://github.com/facebookresearch/optimizers.git
+[submodule "ref/sam"]
+	path = ref/sam
+	url = https://github.com/davda54/sam
+[submodule "ref/GAM"]
+	path = ref/GAM
+	url = https://github.com/xxgege/GAM
