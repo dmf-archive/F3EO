@@ -300,10 +300,17 @@ class Trainer:
                     if avg_grad_norm is not None:
                         _, avg_pi_obj = pi_calculator.calculate_pi(avg_entropy_tensor, avg_grad_norm)
 
-                diagnostics = getattr(self.optimizer, 'diagnostics', None)
+                diagnostics = getattr(self.optimizer, 'diagnostics', {})
                 if diagnostics is not None:
                     import copy
                     diagnostics = copy.deepcopy(diagnostics)
+                
+                # 监控各参数组的平均范数
+                for i, group in enumerate(self.optimizer.param_groups):
+                    group_name = "muon" if group.get("use_muon") or group.get("is_rmsuon_group") else "adam"
+                    norms = [p.norm().item() for p in group['params']]
+                    if norms:
+                        diagnostics[f"group_{i}_{group_name}_avg_norm"] = sum(norms) / len(norms)
 
                 epoch_metric = EpochMetric(
                     task_name=task_name, task_epoch=len(self.store.get_history_for_task(task_name)),

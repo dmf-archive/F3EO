@@ -139,8 +139,14 @@ def get_optimizer(name: str, params: list[dict], **config) -> tuple[torch.optim.
     # 参数初始化逻辑还原
     opt_config = config.copy()
     if meta.grouping != GroupingStrategy.NONE:
-        all_params = [p for g in params for p in g['params']]
-        init_params = _create_specialized_param_groups(all_params, meta, opt_config)
+        flag_name = "use_muon" if meta.grouping == GroupingStrategy.MUON else "is_rmsuon_group"
+        # 如果已经手动分好组了，则尊重手动分组
+        if any(flag_name in g for g in params):
+            init_params = params
+        else:
+            all_params = [p for g in params for p in g['params']]
+            init_params = _create_specialized_param_groups(all_params, meta, opt_config)
+        
         for key in ["adam_lr", "adam_betas", "adam_eps", "adam_weight_decay"]:
             opt_config.pop(key, None)
     elif meta.expects_param_groups:

@@ -52,8 +52,9 @@ class ModAdditionTask(BaseTask):
         non_hidden_weights = []
 
         for name, param in model.named_parameters():
-            # In Grokking Transformer, we want to apply Muon to W_E, W_U, W_K, W_Q, W_V, W_O, W_in, W_out
-            if param.ndim >= 2:
+            # Muon should ONLY be applied to hidden layers (Attention and MLP weights).
+            # Embedding (W_E) and Unembed (W_U) must use AdamW to preserve sparse updates.
+            if param.ndim >= 2 and "embed" not in name:
                 hidden_weights.append(param)
             else:
                 non_hidden_weights.append(param)

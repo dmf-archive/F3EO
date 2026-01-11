@@ -13,8 +13,8 @@
 
 Modern deep learning optimization faces a trade-off between statistical adaptivity (how fast to learn) and structural stability (what to learn). F3EO-Bench facilitates research into optimizers that decouple these concerns. Our flagship optimizer, **AdaRMSuon**, operationalizes this principle:
 
-1. **Statistical Operator (Energy)**: Uses the scalar norm of AdamW's second-moment-corrected momentum (`||m̂ / √v̂||`) to determine the update magnitude. This acts as a computationally cheap proxy for the rate of free-energy descent.
-2. **Structural Operator (Geometry)**: Employs Muon's Newton-Schulz iteration to find an orthogonal update direction (`O_t`). **AdaRMSuon** further introduces **Pre-whitening**, whitening the gradient with `v_t` before projection to ensure the update follows the geodesic of the Riemannian manifold.
+1. **Statistical Operator (Energy)**: Uses the scalar norm of AdamW's second-moment-corrected momentum (‖m̂ / √v̂‖) to determine the update magnitude. This acts as a computationally cheap proxy for the rate of free-energy descent.
+2. **Structural Operator (Geometry)**: Employs Muon's Newton-Schulz iteration to find an orthogonal update direction (O_t). **AdaRMSuon** further introduces **Pre-whitening**, whitening the gradient with v_t before projection to ensure the update follows the geodesic of the Riemannian manifold.
 
 The final update is a composition of these two operators: `g_update = scale * O_t`. This decouples "how fast" from "where to go," providing a robust and efficient path towards the minimum.
 
@@ -22,9 +22,9 @@ The final update is a composition of these two operators: `g_update = scale * O_
 
 While AdaRMSuon converges extremely fast, it tends to fall into sharp local minima (overfitting). To address this, we introduced **ARS (AdaRMSuon Regularized Search)**, which adds topological flatness constraints on top of the geometric gliding.
 
-- **Manifold-Aware SAM**: ARS calculates the adversarial direction not in Euclidean space, but on the Riemannian manifold defined by `v_t`, searching for "flat" geodesic regions.
-- **Lazy Mode & Shear Force Injection**: To avoid the double computational cost of SAM, we implemented Lazy Mode (`k > 1`). In non-perturbation steps, we inject a "Shear Force" (`v_flat`) orthogonal to the base gradient, continuously pushing the model away from sharp regions.
-- **Intensity Compensation**: Experiments show that in Lazy Mode, the injection intensity (`alpha`) must be increased to compensate for the bias caused by low-frequency corrections. The configuration `k=5, alpha=0.1` achieves the best balance between training speed and generalization performance.
+- **Manifold-Aware SAM**: ARS calculates the adversarial direction not in Euclidean space, but on the Riemannian manifold defined by v_t, searching for "flat" geodesic regions.
+- **Lazy Mode & Shear Force Injection**: To avoid the double computational cost of SAM, we implemented Lazy Mode (k > 1). In non-perturbation steps, we inject a "Shear Force" (v_flat) orthogonal to the base gradient, continuously pushing the model away from sharp regions.
+- **Intensity Compensation**: Experiments show that in Lazy Mode, the injection intensity (α) must be increased to compensate for the bias caused by low-frequency corrections. The configuration k=5, α=0.1 achieves the best balance between training speed and generalization performance.
 
 ## 3. Key Experimental Results
 

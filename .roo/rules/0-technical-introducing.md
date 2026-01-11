@@ -4,37 +4,29 @@
 
 从 FEP/IPWT 分叉出两条“存在”算法：
 
-## 1. RL-EFE (Reinforcement Learning - Expected Free Energy, RL-EFE)
+## Reinforcement Learning - Expected Free Energy, RL-EFE
 
 > 存在是预测世界并选择最利于自己的未来。
 
-这是 Friston 及其追随者（Active Inference 社区主流）所走的路。它继承了经典的**笛卡尔二元论**：一个在此岸的主体（Agent），去预测并控制彼岸的客体（Environment）。
+这是 Friston 的正统路径。它继承了经典的**笛卡尔二元论**，试图通过**显式的未来模拟**来消除不确定性。
 
-其核心算法逻辑是**显式的未来模拟**（≈ 策略采样）：
+核心逻辑是**反事实推演**。
+智能体维护一个生成模型，在脑海中 Rollout 所有可能的未来轨迹，计算包含认知价值（好奇心）与实用价值（奖励）的**期望自由能 (G)**，并据此进行决策。
 
-1. **生成模型**: 维护一个世界模型 `p(s, o | π)`。
-2. **反事实推演**: 针对每一个可能的策略 `π`，在脑海中 Rollout 所有可能的未来轨迹。
-3. **期望自由能 (G)**: 计算每条轨迹的 `G(π)`。`G` 被优雅地分解为两项：
-   - **认知价值 (Epistemic Value)**: “我去那里能获得多少新信息？”（好奇心/探索）
-   - **实用价值 (Pragmatic Value)**: “我去那里有多符合我的先验偏好？”（奖励/利用）
-4. **决策**: 选择 `G` 最小的策略执行。
-
-**致命缺陷**:
-这在低维网格世界里是完美的，但在高维现实中是**计算不可行**的。为了计算 $G$，代理必须像拉普拉斯妖一样预演未来。实际上，这种方法往往退化为传统的强化学习：用策略梯度（Policy Gradient）去逼近 $G$，用手工设计的奖励函数去伪装成先验偏好。它许诺了一个统一理论，却在工程上重新发明了 RL 的轮子。
+**致命缺陷**：
+这要求代理成为拉普拉斯妖。在高维现实中，计算 G 是不可行的。它许诺了统一理论，却在工程上退化为重新发明强化学习（RL）的轮子。
 
 > “RL-EFE is a beautiful cul-de-sac: Laplace's demon tries to price every tomorrow and is suffocated by its own weight.”
 
-## 2. SOO-OFE (Second-Order Optimization - Observed Free Energy, SOO-OFE)
+## Second-Order Optimization - Observed Free Energy, SOO-OFE
 
 > 存在是沿着自由能最小化的测地线滑行。
 
 这是 F3EO 选择的路。我们将贝叶斯推断重构为**信息几何流**问题。
 
 不再妄图模拟未来，而是**深度内省当下**。
-智能体不需要在幻想的未来中试错，而是利用当前观测数据所蕴含的丰富几何信息（梯度与曲率/Fisher 矩阵），直接计算出参数空间中自由能下降最快的**测地线方向**。
 
-- **无需 Rollout**: 仅基于 Observed Free Energy，而非 Expected Free Energy。
-- **物理一元论**: 行动不是“选择”的结果，而是系统内部信念状态在几何流形上受力滑行的自然物理过程。
+智能体不需要在幻想的未来中试错，而是利用当前观测数据所蕴含的丰富几何信息（参见：`ARS-Series.md`），直接计算出参数空间中自由能下降最快的**测地线方向**。行动不是“选择”的结果，而是系统内部信念状态在几何流形上受力滑行的自然物理过程。
 
 > I gliding on a geodesic,
 > storm-etched by yesterday;
