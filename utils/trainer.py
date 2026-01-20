@@ -126,12 +126,16 @@ class Trainer:
                     # Execution Flow Control: Skip initial step if optimizer takes closure
                     skip_initial = optimizer_tags.get("d_1_step_takes_closure", False)
                     
+                    print(f"[PROBE] Global Step {self.context.global_step}: skip_initial={skip_initial}, opt={self.optimizer.__class__.__name__}")
+
                     if not skip_initial:
                         logits, loss_tensor, _ = current_task.train_step(
                             model=self.model, batch=batch, criterion=self.criterion,
                             device=self.device,
                             needs_second_order=optimizer_tags.get("d_2_requires_second_order", False)
                         )
+                        if loss_tensor is not None:
+                            print(f"[PROBE] Loss obtained: {loss_tensor.item():.4f}")
                     else:
                         logits, loss_tensor = None, None
 
