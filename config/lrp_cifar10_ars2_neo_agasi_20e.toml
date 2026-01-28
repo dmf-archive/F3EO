@@ -1,0 +1,46 @@
+[experiment]
+name = "lrp_cifar10_ars2_neo_agasi_20e"
+device = "cuda"
+seed = 42
+tasks = ["cifar10"]
+
+[data]
+batch_size = 256
+num_workers = 4
+cutout = true
+n_holes = 1
+cutout_length = 16
+
+[model]
+arch = "resnet18_cifar"
+num_classes = 10
+
+[train]
+epochs = 20
+early_stop_threshold = 99.5
+
+[optimizer]
+name = "ARS2-Neo"
+lr = 1e-3
+weight_decay = 0.0005
+betas = [0.9, 0.999]
+eps = 1e-8
+ns_steps = 5
+rho = 0.1
+k = 10
+alpha = 0.1
+adaptive_sync = true
+asi_enabled = true
+adaptive_beta = 0.99
+adaptive_lambda = 2.0
+adaptive_gamma = 2.0
+
+[scheduler]
+name = "cosine"
+T_max = 20
+eta_min = 1e-5
+
+[pi]
+gamma = 2.0
+alpha = 1.0
+ema_beta = 0.9

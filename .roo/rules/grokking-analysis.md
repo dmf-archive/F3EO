@@ -14,7 +14,7 @@
 
 | 实验路径 (Output Path) | 优化器 (归一化称呼) | 顿悟 Epoch | 最终准确率 | 最终 Loss | 动力学特征分析 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| [`outputs/grok_ars_align`](outputs/grok_ars_align/summary.md) | **ARS2** | **~152** | 99.54% | 0.025 | **爆发力最强**。Sync 模式 ($k=1$) 提供了最高频的几何修正。 |
+| [`outputs/grok_ars_align`](outputs/grok_ars_align/summary.md) | **ARS2-Sync** | **~152** | 99.54% | 0.025 | **爆发力最强**。Sync 模式 ($k=1$) 提供了最高频的几何修正。 |
 | [`outputs/lrp_grok_ars2_neo_aga_400e`](outputs/lrp_grok_ars2_neo_aga_400e/summary.md) | **ARS2-Neo (AGA)** | ~219 | 99.60% | **0.015** | **综合最强**。在保持极速顿悟的同时，最终 Loss 最低，泛化质量最优。 |
 | [`outputs/lrp_grok_ars2_neo_base_400e`](outputs/lrp_grok_ars2_neo_base_400e/summary.md) | **ARS2-Neo (Base)** | ~286 | 99.53% | 0.049 | 验证了能量-几何解耦在无平坦度约束下的基准性能。 |
 | [`outputs/grok_ada_rmsuon_align`](outputs/grok_ada_rmsuon_align/summary.md) | **ARS** | ~336 | 99.89% | 0.009 | 早期版本，收敛曲线极其平滑，但速度稍逊。 |

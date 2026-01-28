@@ -88,21 +88,22 @@ class ARS2Neo(Optimizer):
     - k: SAM mode parameter; k=0 disables SAM, k=1 gives synchronous mode, k>1 gives delayed mode, default 1.
     - alpha: base shear-force injection strength, default 0.1.
     - adaptive_sync: enable Adaptive Geometric Awareness (AGA) sync mode, default False.
-    - adaptive_beta: EMA coefficient for tracking geometric noise (variance), default 0.99.
+    - asi_enabled: enable Active Sharpening Inference (ASI) to adaptively adjust rho, default False.
+    - adaptive_beta: EMA coefficient for tracking geometric noise and surrogate gap, default 0.99.
     - adaptive_lambda: sensitivity for dynamic threshold (L = 1.0 - lambda * std), default 2.0.
-    - adaptive_gamma: exponent for alpha amplification law, default 2.0.
+    - adaptive_gamma: exponent for alpha amplification and rho scaling law, default 2.0.
     """
     
     def __init__(self, params, lr: float = 1e-3, betas: tuple[float, float] = (0.9, 0.999),
                  eps: float = 1e-8, weight_decay: float = 0.01, ns_steps: int = 5,
                  rho: float = 0.1, k: int = 1, alpha: float = 0.1,
-                 adaptive_sync: bool = False, adaptive_beta: float = 0.99,
-                 adaptive_lambda: float = 2.0, adaptive_gamma: float = 2.0):
+                 adaptive_sync: bool = False, asi_enabled: bool = False,
+                 adaptive_beta: float = 0.99, adaptive_lambda: float = 2.0, adaptive_gamma: float = 2.0):
         defaults = dict(
             lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
             ns_steps=ns_steps, rho=rho, k=k, alpha=alpha,
-            adaptive_sync=adaptive_sync, adaptive_beta=adaptive_beta,
-            adaptive_lambda=adaptive_lambda, adaptive_gamma=adaptive_gamma
+            adaptive_sync=adaptive_sync, asi_enabled=asi_enabled,
+            adaptive_beta=adaptive_beta, adaptive_lambda=adaptive_lambda, adaptive_gamma=adaptive_gamma
         )
         super().__init__(params, defaults)
         self.state['step'] = 0
@@ -113,6 +114,10 @@ class ARS2Neo(Optimizer):
         self.state['alpha_t'] = alpha
         self.state['sync_steps'] = 0
         self.state['last_sync_step'] = 0
+        # ASI Global State
+        self.state['ema_gap'] = 0.0
+        self.state['current_rho'] = rho
+        self.state['surrogate_gap'] = 0.0
 
     @torch.no_grad()
     def step(self, closure: Optional[Callable[[], torch.Tensor]] = None) -> Optional[torch.Tensor]:
@@ -126,6 +131,7 @@ class ARS2Neo(Optimizer):
         group0 = self.param_groups[0]
         k = group0.get('k', 1)
         adaptive_sync = group0.get('adaptive_sync', False)
+        asi_enabled = group0.get('asi_enabled', False)
         is_sam_enabled = k > 0 or adaptive_sync
         
         # 2. First Backward (Base Gradient)
@@ -179,7 +185,8 @@ class ARS2Neo(Optimizer):
             self.state['sync_steps'] += 1
             # Perturb
             for group in self.param_groups:
-                rho = group.get('rho', 0.1)
+                # Use dynamic rho if ASI is enabled, otherwise use static rho
+                rho = self.state['current_rho'] if asi_enabled else group.get('rho', 0.1)
                 if rho <= 0: continue
                 eps = group.get('eps', 1e-8)
                 beta2 = group.get('betas', (0.9, 0.999))[1]
@@ -210,8 +217,49 @@ class ARS2Neo(Optimizer):
                 loss_adv.backward()
                 
             # Restore and Shear Force
+            # ASI: Update surrogate gap and rho
+            if asi_enabled:
+                surrogate_gap = (loss_adv - loss).item()
+                self.state['surrogate_gap'] = surrogate_gap
+                beta = group0.get('adaptive_beta', 0.99)
+                
+                # Update EMA Gap and Loss
+                if self.state['sync_steps'] == 1:
+                    self.state['ema_gap'] = abs(surrogate_gap)
+                    self.state['ema_loss'] = loss.item()
+                else:
+                    self.state['ema_gap'] = beta * self.state['ema_gap'] + (1 - beta) * abs(surrogate_gap)
+                    
+                prev_ema_loss = self.state.get('ema_loss', loss.item())
+                self.state['ema_loss'] = beta * prev_ema_loss + (1 - beta) * loss.item()
+                diff_loss = self.state['ema_loss'] - prev_ema_loss
+                
+                # Feedback Logic: Multiplicative update for stability
+                # Reuse alpha as meta-lr, gamma as sensitivity
+                asi_lr = group0.get('alpha', 0.1) * 0.01
+                gamma = group0.get('adaptive_gamma', 2.0)
+                dh = abs(surrogate_gap) - self.state['ema_gap']
+                
+                # Logic:
+                # 1. If improving (diff_loss < 0), increase rho to maintain pressure.
+                # 2. If sharpening (dh > 0), increase rho more to suppress.
+                # 3. If failing (diff_loss > 0), decrease rho to allow fitting.
+                improving = diff_loss < 0
+                sharpening = dh > 0
+                
+                if improving:
+                    factor = 1.0 + asi_lr * (gamma if sharpening else 1.0)
+                else:
+                    factor = 1.0 - asi_lr * (gamma if sharpening else 1.0)
+                
+                self.state['current_rho'] *= factor
+                
+                # Safety Clamp: prevent collapse or explosion
+                rho_base = group0.get('rho', 0.1)
+                self.state['current_rho'] = max(rho_base * 0.1, min(self.state['current_rho'], rho_base * 10.0))
+
             for group in self.param_groups:
-                rho = group.get('rho', 0.1)
+                rho = self.state['current_rho'] if asi_enabled else group.get('rho', 0.1)
                 if rho <= 0: continue
                 for p in group['params']:
                     if p.grad is None: continue
@@ -310,7 +358,10 @@ class ARS2Neo(Optimizer):
             'phi_std': self.state.get('phi_var', 0.0) ** 0.5,
             'threshold': self.state.get('threshold', 0.0),
             'alpha_t': self.state.get('alpha_t', 0.1),
-            'effective_k': total_steps / max(1, sync_steps)
+            'effective_k': total_steps / max(1, sync_steps),
+            'surrogate_gap': self.state.get('surrogate_gap', 0.0),
+            'ema_gap': self.state.get('ema_gap', 0.0),
+            'current_rho': self.state.get('current_rho', 0.0)
         }
 
     def _apply_ars2_kernel(self, p, beta1, beta2, lr, eps, weight_decay, ns_steps):

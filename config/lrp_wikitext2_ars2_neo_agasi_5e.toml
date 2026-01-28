@@ -1,0 +1,39 @@
+[experiment]
+tasks = ["wikitext2"]
+seed = 42
+device = "cuda"
+epochs = 5
+
+[model]
+type = "rope"
+vocabulary_size = 40479
+embedding_size = 512
+sequence_length = 255
+num_heads = 4
+num_layers = 3
+rope_theta = 10000.0
+intermediate_size = 2048
+tie_word_embeddings = true
+
+[data]
+batch_size = 8
+num_workers = 0
+tokenizer_path = "./data/wikitext2_tokenizer.json"
+
+[optimizer]
+name = "ARS2-Neo"
+lr = 0.001
+betas = [0.9, 0.95]
+rho = 0.3
+k = 5
+alpha = 0.1
+adaptive_sync = true
+asi_enabled = true
+adaptive_beta = 0.9
+adaptive_lambda = 1.0
+adaptive_gamma = 2.0
+
+[pi]
+gamma = 1.0
+alpha = 1.0
+ema_beta = 0.9

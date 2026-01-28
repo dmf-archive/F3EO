@@ -74,6 +74,12 @@ REQ-001-EX: `optimizer/ars2_neo.py` 是唯一获准包含 Docstring 的源代码
    - 遵循所有 SOP 流程。
    - 无未经批准的超参数。
 
+## 训练架构
+
+1. REQ-001: **脚本即实验** - 彻底废弃高度耦合的 `Trainer` 类。所有训练逻辑（数据流、模型初始化、训练循环）必须完全内聚于 `exp/` 目录下的独立脚本中。
+2. REQ-002: **SmartOptimizer 驱动** - 必须使用 `optimizer.get_optimizer` 获取 `SmartOptimizer` 实例。
+3. REQ-003: **原子化执行** - 训练循环中必须通过 `smart_opt.step(batch, train_fn)` 执行更新，其中 `train_fn` 负责前向传播与损失计算。`SmartOptimizer` 自动处理闭包、BN 状态保护及二阶梯度逻辑。
+
 ## 调试与异常
 
 1. REQ-001: 严禁在训练流程中使用 `try...except` 静默捕获异常（数据加载或用户中断除外），坚持 **Just in Fail**。
